@@ -1,5 +1,13 @@
 // Набор векторных иконок (24×24, обводка currentColor)
 const P = {
+  axe: '<path d="M14 4 4 20"/><path d="M13 3c4 0 7 3 7 7-3 0-5-1-6.5-2.5S11 6 13 3z"/>',
+  crossbow: '<path d="M4 12h16"/><path d="M6 5c3 2 3 12 0 14"/><path d="M6 5l12 7-12 7"/><path d="m18 10 2 2-2 2"/>',
+  knife: '<path d="M4 20 15 9"/><path d="M15 9c2-2 5-5 6-6-1 4-3 7-5 8z"/><path d="m6 15 3 3"/>',
+  staff: '<path d="M6 21 17 7"/><circle cx="18" cy="5.5" r="2.5"/><path d="M15 3.5l1 1M21 8.5l-1-1"/>',
+  book: '<path d="M4 5c3-1 5-1 8 1 3-2 5-2 8-1v14c-3-1-5-1-8 1-3-2-5-2-8-1z"/><path d="M12 6v14"/>',
+  flask: '<path d="M10 3h4M10 3v6l-5 9a2 2 0 0 0 2 3h10a2 2 0 0 0 2-3l-5-9V3"/><path d="M7.5 15h9"/>',
+  armor: '<path d="M8 3 4 5v6l2 1v8h12v-8l2-1V5l-4-2c-1 2-2.5 3-4 3S9 5 8 3z"/><path d="M12 9v11"/>',
+  anvil: '<path d="M3 7h13c0 3 2 4 5 4-1 2-3 3-6 3h-1l2 5H8l2-5H8C5 14 3 11 3 7z"/>',
   sword: '<path d="M14.5 17.5 3 6V3h3l11.5 11.5"/><path d="m13 19 6-6"/><path d="m16 16 4 4"/><path d="m19 21 2-2"/>',
   zap: '<path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/>',
   split: '<path d="M3 12h6"/><path d="m9 12 10-7"/><path d="M9 12h12"/><path d="m9 12 10 7"/><circle cx="9" cy="12" r="1.5"/>',

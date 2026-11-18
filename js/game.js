@@ -6,8 +6,9 @@ import { input } from './input.js';
 import { CHARACTERS, charById } from './characters.js';
 import { ENEMY_TYPES, BOSSES, TOTAL_WAVES, BOSS_WAVES, FINAL_BOSSES, wavePool, waveDuration, isBossWave, newEnemyAt, createEnemy, createBoss, makeElite, updateEnemy } from './enemies.js';
 import { rollShop, itemPrice, rerollPrice } from './shop.js';
+import { newForge, rollForge, forgePrice, forgeStep, MAX_FORGE } from './forge.js';
 import { rollChoices, applyChoice } from './upgrades.js';
-import { KITS, kitOf } from './heroes.js';
+import { KITS, kitOf, castLightning } from './heroes.js';
 
 export const ARENA = 3200;
 const CELL = 64;
@@ -23,7 +24,8 @@ const GEM_TIERS = [
   { v: 1, color: '#ffc560', r: 4.5 },
 ];
 
-export const xpFor = (l) => Math.floor(6 + (l - 1) * 4.5 + Math.pow(l - 1, 1.6));
+// каждый уровень требует заметно больше опыта, чем предыдущий
+export const xpFor = (l) => Math.floor(9 + (l - 1) * 7 + Math.pow(l - 1, 1.95) * 0.8);
 
 export class Game {
   constructor(canvas, ui) {
@@ -49,6 +51,10 @@ export class Game {
     this.allies = [];
     this.skyArrows = [];
     this.pillars = [];
+    this.clouds = [];
+    this.meteors = [];
+    this.wells = [];
+    this.blasts = [];
     this.cloudFlash = 0;
     this.grid = Array.from({ length: COLS * COLS }, () => []);
     this.usedCells = [];
@@ -83,11 +89,12 @@ export class Game {
   }
 
   // ---------- Запуск забега ----------
-  start(charId) {
+  start(charId, weaponId) {
     const ch = charById(charId);
+    this.weaponId = weaponId;
     this.enemies.length = this.bullets.length = this.projs.length = 0;
     this.gems.length = this.pickups.length = this.hazards.length = this.bolts.length = 0;
-    this.slashes.length = this.traps.length = this.allies.length = this.skyArrows.length = this.pillars.length = 0;
+    this.slashes.length = this.traps.length = this.allies.length = this.skyArrows.length = this.pillars.length = this.clouds.length = this.meteors.length = this.wells.length = this.blasts.length = 0;
     this.particles.clear();
     this.time = 0;
     this.timeScale = 1;
@@ -109,7 +116,7 @@ export class Game {
     this.player = this.createPlayer(ch);
     if (this.view) {
       this.view.reset();
-      this.view.setHero(ch.id);
+      this.view.setHero(ch.id, this.player.weapon.id);
     }
     this.cam.x = this.player.x;
     this.cam.y = this.player.y;
@@ -145,8 +152,9 @@ export class Game {
   }
 
   waveScale() {
+    // враги крепнут с каждой волной: здоровье растёт быстрее урона, чтобы бой не превращался в ваншоты
     const w = this.wave - 1;
-    return { hp: 1 + w * 0.25 + w * w * 0.025, dmg: 1 + w * 0.07 };
+    return { hp: 1 + w * 0.3 + w * w * 0.034, dmg: 1 + w * 0.095 + w * w * 0.0015, spd: 1 + w * 0.009 };
   }
 
   endWave() {
@@ -183,29 +191,58 @@ export class Game {
   openShop() {
     this.state = 'shop';
     this.shopRerolls = 0;
-    this.shopOffers = rollShop(this.player, this.wave);
+    this.shopOffers = this.rollOffers();
     audio.intensity = 3;
     this.ui.showShop(this);
   }
 
+  // Товар лавки: 2 улучшения оружия, 2 улучшения брони и 2 диковины
+  rollOffers() {
+    const p = this.player;
+    const out = [];
+    let relics = 2;
+    for (const slot of ['weapon', 'armor']) {
+      const fams = rollForge(p, slot, 2);
+      relics += 2 - fams.length;
+      for (const fam of fams) out.push({ kind: 'forge', slot, fam, sold: false });
+    }
+    for (const it of rollShop(p, this.wave, relics)) out.push({ kind: 'item', ...it });
+    return out;
+  }
+
+  offerPrice(o) {
+    if (o.kind === 'forge') return forgePrice(this.player.forge[o.slot].lvl, this.wave);
+    return itemPrice(o, this.wave);
+  }
+
+  offerAvailable(o) {
+    return !o.sold && (o.kind !== 'forge' || this.player.forge[o.slot].lvl < MAX_FORGE);
+  }
+
   buyItem(i) {
     const it = this.shopOffers[i];
-    if (!it || it.sold) return false;
-    const price = itemPrice(it, this.wave);
+    if (!it || !this.offerAvailable(it)) return false;
+    const price = this.offerPrice(it);
     if (this.gold < price) return false;
     this.gold -= price;
     it.sold = true;
     const p = this.player;
-    it.apply(p);
-    p.items.push(it.id);
-    p.itemCount[it.id] = (p.itemCount[it.id] || 0) + 1;
+    if (it.kind === 'forge') {
+      const legend = forgeStep(p, it.slot, it.fam);
+      this.lastLegend = legend;
+      if (legend) audio.play('levelup');
+    } else {
+      it.apply(p);
+      p.items.push(it.id);
+      p.itemCount[it.id] = (p.itemCount[it.id] || 0) + 1;
+    }
     audio.play('select');
     return true;
   }
 
   // если всё раскуплено — новый товар бесплатно
   shopRerollPrice() {
-    return this.shopOffers && this.shopOffers.every((o) => o.sold) ? 0 : rerollPrice(this.wave, this.shopRerolls);
+    return this.shopOffers && this.shopOffers.every((o) => !this.offerAvailable(o)) ? 0 : rerollPrice(this.wave, this.shopRerolls);
   }
 
   rerollShop() {
@@ -213,7 +250,7 @@ export class Game {
     if (this.gold < price) return false;
     this.gold -= price;
     if (price > 0) this.shopRerolls++;
-    this.shopOffers = rollShop(this.player, this.wave);
+    this.shopOffers = this.rollOffers();
     audio.play('ui');
     return true;
   }
@@ -246,20 +283,19 @@ export class Game {
   }
 
   createPlayer(ch) {
+    const weapon = ch.weapons.find((w) => w.id === this.weaponId) || ch.weapons[0];
     const s = {
-      maxHp: ch.hp, dmgMult: 1, rateMult: 1, extraProj: 0, pierce: ch.weapon.pierce, crit: 0.05, critMult: 2,
-      projSpeed: 1, range: 1, size: 1, homing: ch.weapon.homing || 0, bounce: 0, explosive: 0, chain: 0, frost: 0,
-      orbitals: 0, drones: 0, regen: 0, armor: 0, shieldCd: 0, lifesteal: 0, retaliate: 0, speedMult: 1, magnet: 1,
-      cdMult: 1, xpMult: 1, luck: 0, revive: 0, burnMult: 1, auraMult: 1, wispChance: 0,
+      maxHp: ch.hp, dmgMult: 1, rateMult: 1, extraProj: 0, pierce: 0, crit: 0.05 + (weapon.crit || 0), critMult: 2,
+      projSpeed: 1, range: 1, size: 1, homing: 0, bounce: 0, explosive: 0, chain: 0, frost: 0,
+      orbitals: 0, drones: 0, regen: 0, armor: ch.armor.base, shieldCd: 0, lifesteal: 0, retaliate: 0, speedMult: 1, magnet: 1,
+      cdMult: 1, xpMult: 1, luck: 0, revive: 0, burnMult: 1, auraMult: 1, wispChance: 0, ignite: 0, dodge: 0, thorns: 0,
     };
     if (ch.id === 'vega') {
       s.crit += 0.15;
       s.critMult = 2.5;
     }
-    if (ch.id === 'bastion') s.armor = 0.15;
-    if (ch.id === 'spark') s.armor = 0.1;
     return {
-      char: ch, s, x: ARENA / 2, y: ARENA / 2, vx: 0, vy: 0, aim: 0, hp: ch.hp, r: 15, hitR: 5,
+      char: ch, weapon, tags: weapon.tags, forge: newForge(), mods: { rate: 1, dmg: 1 }, atkScale: 1, stepT: 1, wellT: 4, weaponMult: 1, duskT: 0, wrathT: 2.5, atkN: 0, echoT: 0, s, x: ARENA / 2, y: ARENA / 2, vx: 0, vy: 0, aim: 0, hp: ch.hp, r: 15, hitR: 5,
       level: 1, xp: 0, xpNext: xpFor(1), invuln: 1, fireT: 0.3, abilityCd: 0, abilityMax: ch.ability.cd,
       dashT: 0, dashVx: 0, dashVy: 0, dashHit: null, aegisT: 0, aegisMax: 1, shield: 0, shieldT: 0,
       flags: {}, upg: {}, upgList: [], items: [], itemCount: {}, branch: {}, rage: 0, rageT: 0, spinT: 0, orbitA: 0, lastShot: -9, abilityAnimT: 0, droneT: [0, 0, 0], volleyT: 0, trailT: 0, rerolls: 2, hurtT: 0,
@@ -268,7 +304,7 @@ export class Game {
 
   playerDamage() {
     const p = this.player;
-    return p.char.weapon.damage * p.s.dmgMult;
+    return p.weapon.damage * p.s.dmgMult * p.weaponMult * p.mods.dmg * p.atkScale * (p.duskT > 0 ? 1.3 : 1);
   }
 
   toast(text, color = '#fff') {
@@ -416,6 +452,10 @@ export class Game {
     compact(this.traps);
     compact(this.skyArrows);
     compact(this.pillars);
+    compact(this.clouds);
+    compact(this.meteors);
+    compact(this.wells);
+    compact(this.blasts);
 
     if (this.xpComboT > 0) {
       this.xpComboT -= dt;
@@ -499,7 +539,7 @@ export class Game {
     let want = p.aim;
     if (tg && !tg.dead) {
       const d = Math.sqrt(dist2(p.x, p.y, tg.x, tg.y));
-      const lead = Math.min(0.5, d / (p.char.weapon.speed * p.s.projSpeed));
+      const lead = Math.min(0.5, d / (p.weapon.speed * p.s.projSpeed));
       want = angleTo(p.x, p.y, tg.x + tg.vx * lead, tg.y + tg.vy * lead);
     } else if (Math.hypot(p.vx, p.vy) > 30) want = Math.atan2(p.vy, p.vx);
     let da = want - p.aim;
@@ -511,7 +551,7 @@ export class Game {
     if (p.volleyT > 0) p.volleyT -= dt;
     const rm = kit.rateMul(p);
     p.fireT -= dt * rm;
-    const interval = 1 / (ch.weapon.rate * s.rateMult);
+    const interval = 1 / (p.weapon.rate * Math.max(0.2, s.rateMult) * p.mods.rate);
     let guard = 0;
     if (!p.aimTarget || p.aimTarget.dead || rm <= 0) p.fireT = Math.max(p.fireT, 0);
     else
@@ -555,12 +595,80 @@ export class Game {
     }
     kit.update(this, p, dt);
     p.orbitA += dt * 3.2;
+    if (p.echoT > 0 && (p.echoT -= dt) <= 0 && p.aimTarget && !p.aimTarget.dead) {
+      kit.attack(this, p);
+      p.lastShot = this.time;
+    }
+    if (p.duskT > 0) p.duskT -= dt;
+    if (p.flags.secondWind && p.hp < s.maxHp * 0.35) p.hp = Math.min(s.maxHp, p.hp + s.regen * 3 * dt);
+    // легенда «Гнев небес»
+    if (p.flags.skyWrath && (p.wrathT -= dt) <= 0) {
+      const t = this.nearestEnemy(p.x, p.y, 520, null, true);
+      if (t) {
+        p.wrathT = 2.5;
+        this.addBolt(t.x + rand(-20, 20), t.y + rand(-20, 20), 9, t.x, t.y, 0, '#c0d8ff', 1.5);
+        this.damageEnemy(t, this.playerDamage() * 3, true, t.x, t.y, '#cfe0ff');
+        this.particles.ring(t.x, t.y, '#c0d8ff', 70, 0.3, 4);
+        audio.play('zap', { sky: true });
+      } else p.wrathT = 0.3;
+    }
   }
 
   fireWeapon() {
     const p = this.player;
     kitOf(p).attack(this, p);
     p.lastShot = this.time;
+    // легенда «Эхо удара»: каждая 4-я атака повторяется
+    p.atkN++;
+    if (p.flags.echoAttack && p.atkN % 4 === 0) p.echoT = 0.12;
+    // таинства
+    if (p.flags.trident) {
+      this.extraAttack(0.52, 0.45);
+      this.extraAttack(-0.52, 0.45);
+    }
+    if (p.flags.twoface) this.extraAttack(Math.PI, 0.7);
+    if (p.flags.meteor && p.atkN % 5 === 0 && p.aimTarget && !p.aimTarget.dead) {
+      const t = p.aimTarget;
+      this.meteors.push({ x: t.x + t.vx * 0.4, y: t.y + t.vy * 0.4, t: 0, delay: 0.55, R: 130 * p.s.size, dmg: this.playerDamage() * 3 });
+    }
+    if (p.flags.bloodPrice) p.hp = Math.max(1, p.hp - 2 / (p.weapon.rate * Math.max(0.2, p.s.rateMult) * p.mods.rate));
+  }
+
+  // Дополнительная атака в другом направлении (Трезубец, Двуликий): счётчики героя не сбиваются
+  extraAttack(off, scale) {
+    const p = this.player, kit = kitOf(p);
+    const save = { aim: p.aim, aimTarget: p.aimTarget, swingN: p.swingN, shotN: p.shotN, castN: p.castN };
+    p.aim = save.aim + off;
+    const reach = kit.reach(p);
+    let best = null, bd = reach * reach;
+    for (const e of this.enemies) {
+      if (e.dead || e === save.aimTarget || e.def.ai === 'static') continue;
+      const d = dist2(p.x, p.y, e.x, e.y);
+      if (d > bd || Math.abs(angleDiff(p.aim, angleTo(p.x, p.y, e.x, e.y))) > 0.6) continue;
+      bd = d;
+      best = e;
+    }
+    p.aimTarget = best;
+    p.atkScale = scale;
+    try {
+      kit.attack(this, p);
+    } finally {
+      p.atkScale = 1;
+      Object.assign(p, save);
+    }
+  }
+
+  // общие эффекты попадания от кузни: поджог и «Жажда»
+  onHitProc(e, dmg, crit) {
+    const p = this.player, s = p.s;
+    if (s.ignite > 0 && Math.random() < s.ignite) {
+      e.burnT = 2.5;
+      e.burnDps = Math.max(e.burnDps, dmg * 0.25 * s.burnMult);
+    }
+    if (crit && p.flags.thirst && (p.thirstT || 0) < this.time) {
+      p.thirstT = this.time + 0.2;
+      p.hp = Math.min(s.maxHp, p.hp + s.maxHp * 0.01);
+    }
   }
 
   addProj(o) {
@@ -572,6 +680,7 @@ export class Game {
       bounce: o.bounce || 0, explosive: o.explosive || 0, decel: o.decel || 0, knock: o.knock ?? 50,
       echo: !!o.echo, hit: null, tgt: null, tgtT: 0, dead: false,
       mark: !!o.mark, heavy: !!o.heavy, heal: !!o.heal, split: !!o.split,
+      noHit: !!o.noHit, ret: o.ret || 0, zap: o.zap || null, blast: !!o.blast, rage: !!o.rage, sx: o.x, sy: o.y,
     };
     this.projs.push(pr);
     return pr;
@@ -686,9 +795,9 @@ export class Game {
       }
       this.toast('Нежить смыкает кольцо!', '#ff7a4a');
     }
-    let rate = 0.9 + w * 0.3;
+    let rate = 1 + w * 0.34;
     if (isBossWave(w)) rate *= 0.28;
-    const cap = Math.min(MAX_ENEMIES, 40 + w * 6);
+    const cap = Math.min(MAX_ENEMIES, 44 + w * 7);
     if (this.enemies.length >= cap) return;
     this.spawnT -= dt;
     let guard = 0;
@@ -698,7 +807,7 @@ export class Game {
       const row = weightedPick(pool, (r) => r.w * (r.fresh ? 1.6 : 1));
       const pos = this.spawnPos();
       const cluster = row.type === 'drone' || row.type === 'mite' ? randInt(1, 2 + Math.floor(w / 5)) : 1;
-      const eliteChance = w >= 4 ? 0.012 + w * 0.0025 : 0;
+      const eliteChance = w >= 3 ? 0.014 + w * 0.003 : 0;
       for (let i = 0; i < cluster; i++) this.spawnEnemy(row.type, pos.x + rand(-40, 40), pos.y + rand(-40, 40), i === 0 && chance(eliteChance));
     }
   }
@@ -782,6 +891,8 @@ export class Game {
     if (e.markT > 0) dmg *= 1.25;
     if (pl && pl.flags.brittle && (e.slowT > 0 || this.timeStopT > 0)) dmg *= 1.25;
     if (pl && pl.flags.loop && this.timeStopT > 0) dmg *= 1.5;
+    if (pl && pl.flags.permafrost && e.slowT > 0) dmg *= 1.3;
+    if (pl && pl.flags.crush && (e.elite || e.boss)) dmg *= 1.35;
     e.hp -= dmg;
     e.flash = 0.07;
     this.stats.damage += dmg;
@@ -820,6 +931,9 @@ export class Game {
       if (t) this.addProj({ kind: 'soul', x: e.x, y: e.y, angle: angleTo(e.x, e.y, t.x, t.y), speed: 420, r: pr.r * 0.8, dmg: pr.dmg * 0.7, homing: 6, life: 0.9, color: pr.color });
     }
     this.damageEnemy(e, dmg, crit, pr.x, pr.y);
+    this.onHitProc(e, dmg, crit);
+    const kit = kitOf(p);
+    if (kit.onProjHit) kit.onProjHit(this, p, e, pr);
     if (s.chain > 0 && Math.random() < s.chain) this.chainLightning(e, dmg * 0.6);
     if (pr.explosive > 0) this.explode(pr.x, pr.y, pr.explosive, pr.dmg * 0.5, pr.color);
   }
@@ -866,6 +980,13 @@ export class Game {
     const kit = kitOf(p);
     if (kit.onKill) kit.onKill(this, p, e);
     if (p.flags.pyre && e.burnT > 0) this.explode(e.x, e.y, 80, this.playerDamage() * 0.8, '#ff6a20');
+    if (p.flags.chainReact && this.blasts.length < 40) this.blasts.push({ x: e.x, y: e.y, t: 0.09 });
+    if (p.flags.shards && !e.boss && this.projs.length < 600) {
+      const a0 = rand(TAU);
+      for (let i = 0; i < 3; i++)
+        this.addProj({ kind: 'orb', x: e.x, y: e.y, angle: a0 + (i / 3) * TAU, speed: 480, r: 5, dmg: this.playerDamage() * 0.4, life: 0.5, color: p.char.color2, knock: 30 });
+    }
+    if (p.flags.bloodPrice) p.hp = Math.min(s.maxHp, p.hp + 2.5);
     if (e.def.split) {
       for (let i = 0; i < 2; i++) this.spawnEnemy(e.def.split, e.x + rand(-15, 15), e.y + rand(-15, 15));
     }
@@ -916,8 +1037,27 @@ export class Game {
     for (const pr of this.projs) {
       if (pr.dead) continue;
       pr.life -= dt;
+      // метательный топор: долетает и возвращается к герою
+      if (pr.ret) {
+        const p = this.player;
+        if (!pr.back && pr.max - pr.life >= pr.ret) {
+          pr.back = true;
+          pr.hit = null;
+        }
+        if (pr.back) {
+          const sp = Math.hypot(pr.vx, pr.vy);
+          const a = angleTo(pr.x, pr.y, p.x, p.y);
+          const k = 1 - Math.exp(-9 * dt);
+          pr.vx += (Math.cos(a) * sp - pr.vx) * k;
+          pr.vy += (Math.sin(a) * sp - pr.vy) * k;
+          if (dist2(pr.x, pr.y, p.x, p.y) < 26 * 26) pr.life = 0;
+        }
+      }
+      if (pr.zap) kitOf(this.player).projUpdate(this, this.player, pr, dt);
       if (pr.life <= 0) {
         pr.dead = true;
+        const kitE = kitOf(this.player);
+        if (kitE.projEnd) kitE.projEnd(this, this.player, pr);
         if (pr.echo) {
           for (let i = 0; i < 4; i++) {
             const a = (i / 4) * TAU + rand(0.4);
@@ -957,6 +1097,7 @@ export class Game {
         pr.dead = true;
         continue;
       }
+      if (pr.noHit) continue;
       if (pr.kind === 'wisp' && Math.random() < 0.5) this.particles.glow(pr.x, pr.y, pr.color, pr.r * 1.4, 0.3);
       else if (pr.kind === 'flamewave') {
         if (Math.random() < 0.8) this.particles.flame(pr.x + rand(-pr.r, pr.r), pr.y + rand(-pr.r, pr.r), '#ff6a20', 1);
@@ -1133,8 +1274,107 @@ export class Game {
         this.particles.sparks(a.x, a.y, '#d8ecff', 4, 200, 0.2);
       }
     }
+    this.updateMythic(dt);
+    // облака чумы
+    for (const c of this.clouds) {
+      c.life -= dt;
+      if (c.life <= 0) {
+        c.dead = true;
+        continue;
+      }
+      c.tick -= dt;
+      if (c.tick <= 0) {
+        c.tick = 0.4;
+        this.forEnemiesNear(c.x, c.y, c.r, (e) => {
+          e.plagueUntil = this.time + 0.6;
+          this.damageEnemy(e, c.dmg, false, e.x, e.y, '#b8ff80');
+        });
+      }
+      if (Math.random() < 0.5) this.particles.add({ t: 0, x: c.x + rand(-c.r, c.r) * 0.8, y: c.y + rand(-c.r, c.r) * 0.8, vx: rand(-10, 10), vy: rand(-10, 10), h: 0.3, vh: rand(0.2, 0.6), life: 0.9, max: 0, size: 9, color: '#8aff50', drag: 1 });
+    }
     // скелеты-союзники
     if (this.allies.length) this.updateAllies(dt, edt);
+  }
+
+  // Таинства: метеоры, воронки, цепные взрывы, поступь великана
+  updateMythic(dt) {
+    const p = this.player;
+    for (const m of this.meteors) {
+      m.t += dt;
+      if (m.t >= m.delay) {
+        m.dead = true;
+        this.explode(m.x, m.y, m.R, m.dmg, '#ff8a3d');
+        this.particles.burst(m.x, m.y, '#ffb060', 24, 520, 12, 0.6);
+        for (let i = 0; i < 8; i++) this.particles.flame(m.x + rand(-m.R, m.R) * 0.5, m.y + rand(-m.R, m.R) * 0.5, '#ff6a20', 1);
+        this.shake(6);
+      }
+    }
+    for (const b of this.blasts) {
+      b.t -= dt;
+      if (b.t <= 0) {
+        b.dead = true;
+        this.explode(b.x, b.y, 90, this.playerDamage() * 0.45, '#ff9a4a');
+      }
+    }
+    if (p.flags.well && (p.wellT -= dt) <= 0) {
+      // самая плотная группа врагов на экране
+      let best = null, bn = 0;
+      const cand = this.enemies.filter((e) => !e.dead && this.onScreen(e.x, e.y));
+      for (let i = 0; i < Math.min(30, cand.length); i++) {
+        const e = cand[(Math.random() * cand.length) | 0];
+        let n = 0;
+        for (const o of cand) if (dist2(e.x, e.y, o.x, o.y) < 150 * 150) n++;
+        if (n > bn) {
+          bn = n;
+          best = e;
+        }
+      }
+      p.wellT = best ? 7 : 0.5;
+      if (best) {
+        this.wells.push({ x: best.x, y: best.y, life: 2.6, max: 2.6, R: 190 * p.s.size, tick: 0 });
+        audio.play('timestop');
+      }
+    }
+    for (const w of this.wells) {
+      w.life -= dt;
+      if (w.life <= 0) {
+        w.dead = true;
+        this.explode(w.x, w.y, w.R * 0.7, this.playerDamage() * 1.6, '#c070ff');
+        this.shake(5);
+        continue;
+      }
+      this.forEnemiesNear(w.x, w.y, w.R, (e) => {
+        if (e.boss) return;
+        const d = Math.sqrt(dist2(w.x, w.y, e.x, e.y)) || 1;
+        const f = 1300 * dt * (0.4 + (1 - d / w.R)) * (e.elite ? 0.4 : 1);
+        e.kbx += ((w.x - e.x) / d) * f;
+        e.kby += ((w.y - e.y) / d) * f;
+      });
+      w.tick -= dt;
+      if (w.tick <= 0) {
+        w.tick = 0.25;
+        this.forEnemiesNear(w.x, w.y, w.R * 0.55, (e) => this.damageEnemy(e, this.playerDamage() * 0.35, false, e.x, e.y, '#e0b0ff'));
+      }
+      if (Math.random() < 0.8) {
+        const a = rand(TAU), r = w.R * rand(0.7, 1);
+        this.particles.add({ t: 0, x: w.x + Math.cos(a) * r, y: w.y + Math.sin(a) * r, vx: -Math.cos(a) * r * 2.2 - Math.sin(a) * 160, vy: -Math.sin(a) * r * 2.2 + Math.cos(a) * 160, h: 0.3, life: 0.45, max: 0, size: 5, color: '#b070ff', drag: 0 });
+      }
+    }
+    if (p.flags.titan && Math.hypot(p.vx, p.vy) > 40 && (p.stepT -= dt) <= 0) {
+      p.stepT = 1;
+      const R = 130 * p.s.size;
+      this.forEnemiesNear(p.x, p.y, R, (e) => {
+        this.damageEnemy(e, this.playerDamage() * 0.9, false, e.x, e.y);
+        if (e.boss) return;
+        const a = angleTo(p.x, p.y, e.x, e.y);
+        e.kbx += Math.cos(a) * 320;
+        e.kby += Math.sin(a) * 320;
+      });
+      this.particles.ring(p.x, p.y, '#e8c890', R, 0.35, 6);
+      this.particles.burst(p.x, p.y, '#a08060', 10, 260, 7, 0.4);
+      this.shake(3);
+      audio.play('block');
+    }
   }
 
   updateAllies(dt, edt) {
@@ -1361,6 +1601,8 @@ export class Game {
       // щит Готфрида отбивает пули спереди
       if (p.char.id === 'bastion' && d2 < 38 * 38 && KITS.bastion.blocks(p, b)) {
         b.dead = true;
+        // шипастый щит отбивает снаряд обратно
+        if (p.weapon.reflect) this.addProj({ kind: 'orb', x: b.x, y: b.y, angle: Math.atan2(-b.vy, -b.vx), speed: 720, r: 7, dmg: this.playerDamage() * 1.2, pierce: 1, life: 0.8, color: '#ffe9a0', knock: 80 });
         this.particles.sparks(b.x, b.y, '#fff0c0', 5, 260, 0.25);
         this.particles.ring(p.x + Math.cos(p.aim) * 18, p.y + Math.sin(p.aim) * 18, '#ffe9a0', 26, 0.2, 3);
         audio.play('block');
@@ -1405,6 +1647,15 @@ export class Game {
   playerHit(dmg) {
     const p = this.player, s = p.s;
     if (p.invuln > 0 || p.aegisT > 0 || p.dashT > 0 || this.dying > 0) return;
+    // уклонение (броня Тени)
+    if (s.dodge > 0 && Math.random() < s.dodge) {
+      p.invuln = 0.45;
+      this.particles.text(p.x, p.y - 26, 'уклон', '#c8b8ff', 14, false);
+      this.particles.ring(p.x, p.y, '#a890ff', 40, 0.25, 3);
+      if (p.flags.dusk) p.duskT = 2;
+      audio.play('dash');
+      return;
+    }
     if (p.shield) {
       p.shield = 0;
       p.shieldT = 0;
@@ -1412,10 +1663,26 @@ export class Game {
       this.particles.ring(p.x, p.y, '#8cf0ff', 70, 0.4, 5);
       this.clearBullets(p.x, p.y, 80);
       audio.play('shieldBlock');
+      if (p.flags.runeBurst) {
+        this.explode(p.x, p.y, 170, this.playerDamage() * 3, '#8cf0ff');
+        this.forEnemiesNear(p.x, p.y, 170, (e) => {
+          if (e.boss) return;
+          const a = angleTo(p.x, p.y, e.x, e.y);
+          e.kbx += Math.cos(a) * 600;
+          e.kby += Math.sin(a) * 600;
+        });
+      }
       return;
     }
     const kitA = kitOf(p);
     dmg *= 1 - Math.min(0.8, s.armor + (kitA.armorAdd ? kitA.armorAdd(p) : 0));
+    if (p.flags.unbreakable) dmg = Math.min(dmg, s.maxHp * 0.2);
+    // шипы брони
+    if (s.thorns > 0) {
+      const td = this.playerDamage() * s.thorns;
+      this.forEnemiesNear(p.x, p.y, 130, (e) => this.damageEnemy(e, td, false, e.x, e.y, '#d6ff6b'));
+      this.particles.ring(p.x, p.y, '#d6ff6b', 130, 0.3, 4);
+    }
     p.hp -= dmg;
     p.hurtT = 0.4;
     p.invuln = 1;

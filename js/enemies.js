@@ -54,7 +54,7 @@ export const BOSSES = {
     attacks: ['breath', 'meteors', 'dive', 'breath', 'firewall'] },
   abyss: { id: 'abyss', name: 'Владыка Бездны', title: 'Владыка Предела', hp: 24000, r: 54, color: '#ff3a6a', color2: '#ffb0c8', speed: 65, xp: 300,
     attacks: ['beams', 'teleport', 'summonDemons', 'voidOrbs'] },
-  lich: { id: 'lich', name: 'Король-Лич', title: 'Владыка Предела', hp: 20000, r: 50, color: '#b07cff', color2: '#ecdcff', speed: 52, xp: 300,
+  lich: { id: 'lich', name: 'Иерарх Тлена', title: 'Владыка Предела', hp: 20000, r: 50, color: '#b07cff', color2: '#ecdcff', speed: 52, xp: 300,
     attacks: ['flower', 'raise', 'soulSpiral', 'deathZones'] },
 };
 
@@ -63,7 +63,7 @@ export function createEnemy(type, x, y, scale) {
   const hp = d.hp * scale.hp;
   return {
     type, def: d, x, y, vx: 0, vy: 0, kbx: 0, kby: 0,
-    r: d.r, hp, maxHp: hp, speed: d.speed * rand(0.9, 1.1), dmg: d.dmg * scale.dmg, xp: d.xp,
+    r: d.r, hp, maxHp: hp, speed: d.speed * rand(0.9, 1.1) * (scale.spd || 1), dmg: d.dmg * scale.dmg, xp: d.xp,
     color: d.color, rot: rand(TAU), rotSpeed: rand(-2, 2), flash: 0,
     fireT: d.fire ? rand(0.8, d.fire.cd + 1) : rand(1.5, 3.5),
     state: 0, stateT: rand(1, 2.5), spin: rand(TAU), burstT: 0,
@@ -82,10 +82,10 @@ export function makeElite(e) {
 
 export function createBoss(id, wave) {
   const b = BOSSES[id];
-  const hp = b.hp * (1 + Math.max(0, wave - 10) * 0.04);
+  const hp = b.hp * 1.2 * (1 + Math.max(0, wave - 10) * 0.05);
   return {
     type: 'boss', def: b, bossDef: b, x: 0, y: 0, vx: 0, vy: 0, kbx: 0, kby: 0,
-    r: b.r, hp, maxHp: hp, speed: b.speed, dmg: 20 + wave * 1.2, xp: b.xp,
+    r: b.r, hp, maxHp: hp, speed: b.speed, dmg: 22 + wave * 1.5, xp: b.xp,
     color: b.color, rot: 0, rotSpeed: 0.6, flash: 0,
     fireT: 0, state: 0, stateT: 2.2, spin: 0, atk: -1, atkIndex: -1, atkT: 0, emitT: 0, aux: 0,
     slowT: 0, burnT: 0, burnDps: 0, burnTick: 0,
@@ -291,7 +291,7 @@ function updateBoss(e, g, dt, a, d) {
     g.shake(10);
     g.toast(`${b.name} в ярости!`, b.color2);
   }
-  // Король-Лич: кристаллы душ делают его неуязвимым
+  // Иерарх Тлена: кристаллы душ делают его неуязвимым
   if (b.id === 'lich') {
     const marks = [1, 0.66, 0.33];
     if (e.phaseMark < marks.length + 1 && e.hp <= e.maxHp * marks[e.phaseMark - 1] && !e.shielded) {
@@ -308,7 +308,7 @@ function updateBoss(e, g, dt, a, d) {
     if (e.shielded && e.crystals && e.crystals.every((c) => c.dead)) {
       e.shielded = false;
       g.particles.ring(e.x, e.y, '#7af0ff', 200, 0.6, 8);
-      g.toast('Щит Лича разрушен', '#7af0ff');
+      g.toast('Щит Иерарха разрушен', '#7af0ff');
     }
   }
 
@@ -510,7 +510,7 @@ function updateBoss(e, g, dt, a, d) {
         B(a + rand(-0.6, 0.6), 120, { color: '#ff3a6a', r: 13, homing: 1.1, life: 6.5, dmg: dmg * 0.9 });
       }
       break;
-    // --- Король-Лич ---
+    // --- Иерарх Тлена ---
     case 'flower':
       dur = 3.4;
       if (e.emitT <= 0 && e.aux < 3) {

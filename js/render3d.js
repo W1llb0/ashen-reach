@@ -12,6 +12,8 @@ import { input } from './input.js';
 import { ARENA } from './game.js';
 import { charById } from './characters.js';
 import { KITS } from './heroes.js';
+import { WEAPON_FAMS, ARMOR_FAMS } from './forge.js';
+import { clamp } from './util.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 const U = 32; // пикселей логики на единицу мира
@@ -22,12 +24,20 @@ const FOV = 36;
 
 // ---------- Внешний вид героев и врагов ----------
 export const HERO_VIS = {
-  spark: { model: 'Barbarian', h: 1.7, show: ['2H_Axe', 'Barbarian_Hat', 'Barbarian_Cape'], attack: 'Throw', ability: '2H_Melee_Attack_Spin', pose: '2H_Melee_Idle' },
-  vega: { model: 'Rogue_Hooded', h: 1.65, show: ['2H_Crossbow', 'Rogue_Cape'], attack: '2H_Ranged_Shooting', ability: 'Dodge_Forward', pose: 'Idle' },
-  chronos: { model: 'Mage', h: 1.75, show: ['2H_Staff', 'Mage_Hat', 'Mage_Cape'], attack: 'Spellcasting', ability: 'Spellcast_Raise', pose: 'Idle' },
-  bastion: { model: 'Knight', h: 1.75, show: ['1H_Sword', 'Round_Shield', 'Knight_Helmet', 'Knight_Cape'], attack: '1H_Melee_Attack_Chop', ability: 'Blocking', pose: 'Idle' },
-  morra: { model: 'Rogue', h: 1.6, show: ['Rogue_Cape'], attack: 'Spellcast_Shoot', ability: 'Spellcast_Summon', pose: 'Idle' },
+  spark: { model: 'Barbarian', h: 1.7, wear: ['Barbarian_Hat', 'Barbarian_Cape'], attack: 'Throw', ability: '2H_Melee_Attack_Spin', pose: '2H_Melee_Idle' },
+  vega: { model: 'Rogue_Hooded', h: 1.65, wear: ['Rogue_Cape'], attack: '2H_Ranged_Shooting', ability: 'Dodge_Forward', pose: 'Idle' },
+  chronos: { model: 'Mage', h: 1.75, wear: ['Mage_Hat', 'Mage_Cape'], attack: 'Spellcasting', ability: 'Spellcast_Raise', pose: 'Idle' },
+  bastion: { model: 'Knight', h: 1.75, wear: ['Knight_Helmet', 'Knight_Cape'], attack: '1H_Melee_Attack_Chop', ability: 'Blocking', pose: 'Idle' },
+  morra: { model: 'Rogue', h: 1.6, wear: ['Rogue_Cape'], attack: 'Spellcast_Shoot', ability: 'Spellcast_Summon', pose: 'Idle' },
 };
+
+// внешний вид героя с выбранным оружием в руках
+export function heroVis(id, weaponId) {
+  const v = HERO_VIS[id];
+  const ch = charById(id);
+  const w = ch.weapons.find((x) => x.id === weaponId) || ch.weapons[0];
+  return { ...v, show: [...v.wear, ...w.mesh] };
+}
 
 const SKEL = { spawn: 'Spawn_Ground_Skeletons', death: 'Death_A', hit: 'Hit_A' };
 const FLY = { run: 'Fast_Flying', idle: 'Flying_Idle', death: 'Death', hit: 'HitReact' };
@@ -498,8 +508,8 @@ class ShopLobby {
 
     // товары парят над прилавком
     this.wareMeshes = [];
-    for (let i = 0; i < 4; i++) {
-      const m = new THREE.Mesh(new THREE.OctahedronGeometry(0.13, 0), new THREE.MeshBasicMaterial({ toneMapped: false }));
+    for (let i = 0; i < 6; i++) {
+      const m = new THREE.Mesh(new THREE.OctahedronGeometry(0.11, 0), new THREE.MeshBasicMaterial({ toneMapped: false }));
       s.add(m);
       this.wareMeshes.push(m);
     }
@@ -512,10 +522,10 @@ class ShopLobby {
   }
 
   ensure(g) {
-    const id = g.player.char.id;
+    const id = g.player.char.id + ':' + g.player.weapon.id;
     if (this.heroId !== id) {
       if (this.hero) this.scene.remove(this.hero.root);
-      const vis = HERO_VIS[id];
+      const vis = heroVis(g.player.char.id, g.player.weapon.id);
       const u = new Unit(vis.model, vis, true);
       u.setScale(vis.h);
       u.root.position.set(-1.5, 0, 1.5);
@@ -578,15 +588,15 @@ class ShopLobby {
       G.add(w.x, w.y, w.z, w.s * f, w.s * f, 1.3 * f, 0.55 * f, 0.2 * f);
     }
     G.add(0, 0.25, 0.7, 2.2, 1.0, 0.9, 0.3, 0.08);
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 6; i++) {
       const m = this.wareMeshes[i];
       const it = this.offers[i];
       m.visible = !!it && !it.sold;
       if (!m.visible) continue;
-      const x = 1.9 + i * 0.55, y = 1.3 + Math.sin(t * 2 + i) * 0.07, z = 1.45;
+      const x = 1.75 + i * 0.4, y = 1.3 + Math.sin(t * 2 + i) * 0.07, z = 1.45;
       m.position.set(x, y, z);
       m.rotation.y = t * 1.5 + i;
-      const c = this.view.col(TIER_COLORS[it.tier]);
+      const c = this.view.col(it.kind === 'forge' ? (FAM_COLORS[it.fam] || '#ffc94a') : TIER_COLORS[it.tier]);
       m.material.color.setRGB(c.r * 1.6, c.g * 1.6, c.b * 1.6);
       G.add(x, y, z, 0.7, 0.7, c.r, c.g, c.b);
     }
@@ -610,6 +620,7 @@ class ShopLobby {
   }
 }
 const TIER_COLORS = { 1: '#c9b48e', 2: '#5aaee8', 3: '#b582ff', 4: '#ffc94a' };
+const FAM_COLORS = Object.fromEntries([...Object.entries(WEAPON_FAMS), ...Object.entries(ARMOR_FAMS)].map(([k, f]) => [k, f.color]));
 
 // ---------- Вид ----------
 export class View3D {
@@ -945,7 +956,7 @@ export class View3D {
       shadow: new FXLayer(TEX.shadow, 700, { blending: THREE.NormalBlending, depthTest: true, order: 2 }),
       ground: new FXLayer(TEX.orb, 900, { depthTest: true, order: 3 }),
       groundRing: new FXLayer(TEX.ring, 300, { depthTest: true, order: 3 }),
-      rune: new FXLayer(TEX.rune, 8, { depthTest: true, order: 3 }),
+      rune: new FXLayer(TEX.rune, 24, { depthTest: true, order: 3 }),
       pGlow: new FXLayer(TEX.orb, 1500, { order: 20 }),
       pCore: new FXLayer(TEX.core, 1500, { order: 21 }),
       streak: new FXLayer(TEX.streak, 2400, { order: 22 }),
@@ -1064,12 +1075,12 @@ export class View3D {
     this.pickMeshes.clear();
   }
 
-  setHero(id) {
+  setHero(id, weaponId) {
     if (this.hero) {
       this.scene.remove(this.hero.root);
       this.hero.stop();
     }
-    const vis = HERO_VIS[id];
+    const vis = heroVis(id, weaponId);
     const u = new Unit(vis.model, vis, true);
     u.setScale(vis.h);
     u.play('Idle');
@@ -1127,9 +1138,16 @@ export class View3D {
     this.octx.clearRect(0, 0, this.w, this.h);
     const bubble = document.getElementById('shopBubble');
     if (bubble) {
+      // реплика у головы торговца, но никогда не наезжает на прилавок с товаром
       const [sx, sy] = L.headScreen();
-      bubble.style.left = Math.round(sx) + 'px';
-      bubble.style.top = Math.round(Math.max(sy, 150)) + 'px';
+      const counter = document.querySelector('#screen-shop .counter');
+      const top = document.querySelector('#screen-shop .lobby-top');
+      const bh = bubble.offsetHeight || 80;
+      const minY = (top ? top.getBoundingClientRect().bottom : 90) + bh / 2 + 8;
+      const maxY = (counter ? counter.getBoundingClientRect().top : this.h) - bh / 2 - 14;
+      bubble.style.left = Math.round(Math.max(sx, (bubble.offsetWidth || 200) + 56)) + 'px';
+      bubble.style.top = Math.round(maxY < minY ? minY : clamp(sy, minY, maxY)) + 'px';
+      bubble.style.visibility = maxY < minY - bh * 0.5 ? 'hidden' : '';
     }
   }
 
@@ -1193,7 +1211,7 @@ export class View3D {
     u.root.position.set(x, 0, z);
     const moving = Math.hypot(p.vx, p.vy) > 25 && p.dashT <= 0;
     // поворот: при беге — по движению, иначе — к цели
-    const attackingNow = KITS[p.char.id].tags.includes('melee') && g.time - p.lastShot < 0.32;
+    const attackingNow = p.tags.includes('melee') && g.time - p.lastShot < 0.32;
     const face = moving && !attackingNow ? Math.atan2(p.vy, p.vx) : p.aim;
     const want = Math.PI / 2 - face;
     let d = want - u.yaw;
@@ -1206,9 +1224,9 @@ export class View3D {
     else if (p.abilityAnimT > 0) u.play(vis.ability, { once: vis.ability !== 'Blocking', fade: 0.1, speed: 1.3 });
     else if (p.aegisT > 0) u.play('Blocking');
     else if (p.spinT > 0) u.play('2H_Melee_Attack_Spin', { speed: 1.4 });
-    else if (kit.tags.includes('melee') && g.time - p.lastShot < 0.32) u.play(kit.attackAnim, { speed: 1.7, fade: 0.06 });
+    else if (p.tags.includes('melee') && g.time - p.lastShot < 0.32) u.play(p.weapon.anim, { speed: 1.7, fade: 0.06 });
     else if (moving) u.play('Running_A', { speed: 0.8 + Math.hypot(p.vx, p.vy) / 400 });
-    else if (g.time - p.lastShot < 0.45) u.play(kit.attackAnim || vis.attack, { speed: 1.25 });
+    else if (g.time - p.lastShot < 0.45) u.play(p.weapon.anim || vis.attack, { speed: 1.25 });
     else u.play('Idle');
     const blink = p.invuln > 0 && p.aegisT <= 0 && p.dashT <= 0 && g.dying <= 0 && Math.floor(this.time * 18) % 2 === 0;
     u.model.visible = !blink;
@@ -1496,7 +1514,7 @@ export class View3D {
       }
     }
     for (let i = ci; i < this.cones.length; i++) this.cones[i].visible = false;
-    // щит Короля-Лича
+    // щит Иерарха Тлена
     if (g.boss && g.boss.shielded) {
       const b = g.boss;
       const s = (b.r * 3.6) / U;
@@ -1529,6 +1547,35 @@ export class View3D {
         fx.slash.add(x, H, z, sz, sz, a, c.r * 1.6 * k, c.g * 1.3 * k, c.b * 1.1 * k);
         fx.slash.add(x - Math.cos(a) * 0.3, H, z - Math.sin(a) * 0.3, sz * 0.8, sz * 0.8, a, fire ? 1.2 * k : 1 * k, fire ? 0.35 * k : 0.9 * k, fire ? 0.05 * k : 0.5 * k);
         fx.pGlow.add(x, H, z, sz * 0.7, sz * 0.7, 0, c.r * 0.5 * k, c.g * 0.4 * k, c.b * 0.3 * k);
+      } else if (pr.kind === 'axe') {
+        // крутящийся топор: вращающийся диск-лезвие
+        const sz = (pr.r * 4.4) / U;
+        const sp = t * 22;
+        fx.slash.add(x, H, z, sz, sz, sp, c.r * 0.9, c.g * 0.8, c.b * 0.7);
+        fx.slash.add(x, H, z, sz, sz, sp + Math.PI, c.r * 0.9, c.g * 0.8, c.b * 0.7);
+        fx.pCore.add(x, H, z, sz * 0.22, sz * 0.22, 0, 1.2, 1.1, 1.0);
+        if (pr.burn) fx.pGlow.add(x, H, z, sz * 0.8, sz * 0.8, 0, 0.9, 0.3, 0.05);
+      } else if (pr.kind === 'knife') {
+        this.arrow(x, H, z, Math.cos(a), 0, Math.sin(a), 0.55, 1.4, 1.45, 1.6);
+        const len = (pr.r * 6) / U;
+        fx.streak.add(x - (Math.cos(a) * len) / 2, H, z - (Math.sin(a) * len) / 2, len, (pr.r * 1.0) / U, a, 0.4 * k, 0.45 * k, 0.55 * k);
+      } else if (pr.kind === 'ball') {
+        // шаровая молния: сгусток с пляшущими искрами
+        const sz = (pr.r * 4.2) / U;
+        const fl = 0.8 + Math.random() * 0.4;
+        fx.pGlow.add(x, H, z, sz * 1.6 * fl, sz * 1.6 * fl, 0, c.r * 0.7, c.g * 0.7, c.b * 0.9);
+        fx.pCore.add(x, H, z, sz * 0.5, sz * 0.5, 0, 1.6, 1.7, 2.0);
+        for (let i = 0; i < 3; i++) {
+          const an = Math.random() * TAU, rr = sz * 0.6;
+          this.beam(x, H, z, x + Math.cos(an) * rr, H + (Math.random() - 0.5) * rr, z + Math.sin(an) * rr, 0.025, c.r * 1.4, c.g * 1.4, c.b * 1.6);
+        }
+      } else if (pr.kind === 'flask') {
+        // склянка летит по дуге
+        const prog = 1 - pr.life / pr.max;
+        const hh = 0.8 + Math.sin(prog * Math.PI) * 2.2;
+        fx.pGlow.add(x, hh, z, 0.7, 0.7, 0, 0.35, 1.0, 0.25);
+        fx.pCore.add(x, hh, z, 0.22, 0.22, 0, 0.8, 1.4, 0.6);
+        fx.shadow.add(x, 0.03, z, 0.5, 0.5, 0, 0.6, 0.6, 0.6);
       } else if (pr.kind === 'soul') {
         const sz = (pr.r * 5) / U;
         fx.pGlow.add(x, H, z, sz, sz, 0, 0.25 * k, 1.3 * k, 0.6 * k);
@@ -1566,6 +1613,41 @@ export class View3D {
       const h = 8 * (1 - pr);
       this.arrow(sa.x / U + 0.5 * (1 - pr), h, sa.y / U, -0.12, -1, 0, 1.1, 0.85, 0.92, 1);
       fx.groundRing.add(sa.x / U, 0.05, sa.y / U, 0.9 * pr, 0.9 * pr, 0, 0.5 * pr, 0.6 * pr, 0.8 * pr);
+    }
+
+    // облака чумы
+    for (const c of g.clouds) {
+      const k = Math.min(1, c.life / 0.5, (c.max - c.life) / 0.25);
+      const R = (c.r * 2.4) / U;
+      fx.ground.add(c.x / U, 0.07, c.y / U, R, R, 0, 0.12 * k, 0.38 * k, 0.06 * k);
+      fx.ground.add(c.x / U + Math.sin(t * 1.3 + c.x) * 0.3, 0.09, c.y / U + Math.cos(t * 1.1 + c.y) * 0.3, R * 0.7, R * 0.7, 0, 0.14 * k, 0.4 * k, 0.07 * k);
+      fx.groundRing.add(c.x / U, 0.06, c.y / U, R * 0.85, R * 0.85, t * 0.5, 0.12 * k, 0.4 * k, 0.06 * k);
+    }
+
+    // метеоры: метка на земле и падающий огненный ком
+    for (const m of g.meteors) {
+      const k = Math.min(1, m.t / m.delay);
+      const R = (m.R * 2) / U;
+      const x = m.x / U, z = m.y / U;
+      fx.groundRing.add(x, 0.06, z, R * (0.4 + 0.6 * k), R * (0.4 + 0.6 * k), t * 2, 1.4 * k, 0.5 * k, 0.1 * k);
+      fx.ground.add(x, 0.05, z, R * k, R * k, 0, 0.5 * k, 0.15 * k, 0.03 * k);
+      const h = 11 * (1 - k), ox = 3 * (1 - k);
+      fx.pGlow.add(x + ox, h + 0.3, z - ox * 0.4, 1.9, 1.9, 0, 1.6, 0.6, 0.15);
+      fx.pCore.add(x + ox, h + 0.3, z - ox * 0.4, 0.55, 0.55, 0, 2, 1.5, 0.8);
+      this.beam(x + ox + 1.2, h + 4, z - ox * 0.4 - 0.5, x + ox, h + 0.3, z - ox * 0.4, 0.28, 1.2, 0.4, 0.08);
+    }
+
+    // чёрные воронки
+    for (const w of g.wells) {
+      const k = Math.min(1, (w.max - w.life) / 0.3, w.life / 0.2);
+      const R = (w.R * 2) / U;
+      const x = w.x / U, z = w.y / U;
+      fx.shadow.add(x, 0.04, z, R * 0.9 * k, R * 0.9 * k, 0, 1, 1, 1);
+      fx.groundRing.add(x, 0.06, z, R * k, R * k, -t * 3, 0.6 * k, 0.2 * k, 1.0 * k);
+      fx.groundRing.add(x, 0.07, z, R * 0.6 * k, R * 0.6 * k, t * 4, 0.9 * k, 0.4 * k, 1.4 * k);
+      fx.rune.add(x, 0.05, z, R * 0.75 * k, R * 0.75 * k, -t * 1.5, 0.5 * k, 0.15 * k, 0.9 * k);
+      fx.pGlow.add(x, 0.9, z, 1.6 * k, 1.6 * k, 0, 0.5 * k, 0.15 * k, 0.9 * k);
+      fx.pCore.add(x, 0.9, z, 0.35 * k, 0.35 * k, 0, 0.1, 0.02, 0.2);
     }
 
     // капканы

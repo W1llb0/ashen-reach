@@ -1,5 +1,6 @@
-// Магазин между волнами: артефакты за золото. У сильных артефактов бывают цены и изъяны.
+// Диковины лавки: артефакты за золото (рядом с кузней оружия и брони). У сильных бывают изъяны.
 import { weightedPick } from './util.js';
+import { ownsUnique } from './upgrades.js';
 
 export const TIERS = {
   1: { name: 'Обычный', color: '#c9b48e', base: 14 },
@@ -36,7 +37,7 @@ export const ITEMS = [
   { id: 'dagger', tier: 3, name: 'Пляшущий кинжал', icon: 'orbit', desc: '+1 кинжал кружит вокруг и сбивает чары', max: 4, apply: (p) => (s(p).orbitals += 1) },
   // IV
   { id: 'crown', tier: 4, name: 'Корона павшего короля', icon: 'crown', desc: '+22% урона, +20% опыта, +20 к здоровью', max: 1, apply: (p) => { s(p).dmgMult += 0.22; s(p).xpMult += 0.2; s(p).maxHp += 20; p.hp += 20; } },
-  { id: 'phoenix', tier: 4, name: 'Сердце феникса', icon: 'flame', desc: 'Один раз воскрешает с 60% здоровья', max: 1, apply: (p) => (s(p).revive += 1) },
+  { id: 'phoenix', group: 'revive', tier: 4, name: 'Сердце феникса', icon: 'flame', desc: 'Один раз воскрешает с 60% здоровья', max: 1, apply: (p) => (s(p).revive += 1) },
   { id: 'cloak', tier: 4, name: 'Плащ сумерек', icon: 'shield', desc: '+15% брони, +10% скорости движения', max: 1, apply: (p) => { s(p).armor = Math.min(0.7, s(p).armor + 0.15); s(p).speedMult += 0.1; } },
   { id: 'dragoneye', tier: 4, name: 'Око дракона', icon: 'eye', desc: '+12% шанса крита, +70% урона критов', max: 1, apply: (p) => { s(p).crit += 0.12; s(p).critMult += 0.7; } },
   { id: 'falcon', tier: 4, name: 'Ловчий сокол', icon: 'bird', desc: 'Сокол-спутник бьёт ближайших врагов', max: 2, apply: (p) => (s(p).drones += 1) },
@@ -52,7 +53,7 @@ export function rerollPrice(wave, n) {
   return Math.round(3 + wave * 0.8 + n * 3);
 }
 
-export function rollShop(p, wave, count = 4) {
+export function rollShop(p, wave, count = 2) {
   const luck = p.s.luck;
   const w = {
     1: Math.max(1.5, 10 - wave * 0.45),
@@ -62,8 +63,9 @@ export function rollShop(p, wave, count = 4) {
   };
   const out = [];
   for (let i = 0; i < count; i++) {
-    const tags = { spark: ['melee'], vega: ['proj'], chronos: ['spell'], bastion: ['melee'], morra: ['proj'] }[p.char.id] || [];
-    const pool = ITEMS.filter((it) => !out.some((o) => o.id === it.id) && (!it.max || (p.itemCount[it.id] || 0) < it.max) && (!it.needs || tags.includes(it.needs)));
+    const tags = p.tags || [];
+    const pool = ITEMS.filter((it) => !out.some((o) => o.id === it.id) && (!it.max || (p.itemCount[it.id] || 0) < it.max) &&
+      (!it.needs || tags.includes(it.needs)) && (!it.group || !ownsUnique(p, it.group)));
     const it = weightedPick(pool, (it) => w[it.tier]);
     if (it) out.push({ ...it, sold: false });
   }

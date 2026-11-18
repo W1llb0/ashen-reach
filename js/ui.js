@@ -4,6 +4,7 @@ import { HeroPreview } from './preview.js';
 import { KITS } from './heroes.js';
 import { RARITY, upgradeById } from './upgrades.js';
 import { TIERS, itemById, itemPrice, rerollPrice } from './shop.js';
+import { WEAPON_FAMS, ARMOR_FAMS, famsOf, forgeName, rarityOf, stepDesc, mainFam, LEGEND_AT, MAX_FORGE } from './forge.js';
 import { BOSSES } from './enemies.js';
 const LINES = {
   greet: ['Живой? Здесь? Как… свежо.', 'Садись к огню, странник. Товар не кусается. Почти.', 'Твои монеты пахнут кровью. Мне нравится.', 'Мёртвые болтливы. А я — нет. Покупай.', 'Ещё жив? Тогда тебе понадобится вот это.'],
@@ -11,10 +12,11 @@ const LINES = {
   final: ['Последняя ночь, странник. Владыка Предела уже проснулся.', 'Что бы ни случилось дальше — покупай всё. Мёртвым золото ни к чему.'],
   buy: ['Мудрый выбор.', 'Эта вещь служила прежнему хозяину… недолго.', 'Носи с честью. Или умри с ней.', 'Сделка скреплена.', 'Хе-хе. Обращайся ещё.'],
   poor: ['Монет маловато, странник.', 'Мёртвые в долг не дают.', 'Без золота — без товара.'],
+  forge: ['Металл помнит руку кузнеца. И руку убийцы.', 'Остынет — и будет злее прежнего.', 'Хорошая закалка. Мертвецы оценят.', 'Вот теперь это оружие, а не железка.'],
   reroll: ['Посмотрим, что ещё завалялось в склепе…', 'Ладно, ладно. Вот другое.', 'Есть у меня кое-что получше…'],
 };
 const pickLine = (arr) => arr[Math.floor(Math.random() * arr.length)];
-const BOSSES_NAMES = { dragon: 'Пепельного Дракона', abyss: 'Владыку Бездны', lich: 'Короля-Лича' };
+const BOSSES_NAMES = { dragon: 'Пепельного Дракона', abyss: 'Владыку Бездны', lich: 'Иерарха Тлена' };
 import { icon } from './icons.js';
 import { audio } from './audio.js';
 import { input } from './input.js';
@@ -26,6 +28,7 @@ export class UI {
   constructor() {
     this.game = null;
     this.selected = store.get('kurgan_lastChar', 'spark');
+    this.weaponSel = store.get('kurgan_weapons', {}) || {};
     this.screens = {};
     this.hudCache = {};
     this.previewRaf = 0;
@@ -258,6 +261,7 @@ export class UI {
     const el = this.screens.select;
     el.querySelectorAll('.hero').forEach((b) => b.classList.toggle('active', b.dataset.id === id));
     const c = charById(id);
+    const wid = this.weaponOf(id);
     const rec = this.game.records[id];
     const bar = (label, v) => `<div class="stat"><span>${label}</span><div class="pips">${[1, 2, 3, 4, 5].map((i) => `<i class="${i <= v ? 'on' : ''}"></i>`).join('')}</div></div>`;
     $('.hero-detail', el).style.setProperty('--c', c.color);
@@ -274,8 +278,9 @@ export class UI {
           </div>
         </div>
       </div>
-      <div class="hd-abilities">
-        <div class="ab">${icon('sword', 22)}<div><b>${c.weapon.name}</b><span>${c.weapon.desc}</span></div></div>
+      <div class="sect hd-sect">Оружие похода</div>
+      <div class="weapon-pick">${c.weapons.map((w) => this.weaponCard(c, w, w.id === wid)).join('')}</div>
+      <div class="hd-abilities two">
         <div class="ab">${icon('star', 22)}<div><b>${c.passive.name}</b><span>${c.passive.desc}</span></div></div>
         <div class="ab ab-main">${icon(c.ability.icon, 22)}<div><b>${c.ability.name} <em>${c.ability.cd} сек.</em></b><span>${c.ability.desc}</span></div></div>
       </div>
@@ -285,10 +290,49 @@ export class UI {
         <button class="btn btn-primary" data-act="start">${icon('sword', 20)} В бой</button>
       </div>`;
     $('[data-act=start]', el).onclick = () => this.startRun();
+    el.querySelectorAll('.wpn').forEach((b) => (b.onclick = () => {
+      if (b.dataset.w === this.weaponOf(id)) return;
+      this.weaponSel[id] = b.dataset.w;
+      store.set('kurgan_weapons', this.weaponSel);
+      audio.play('ui');
+      el.querySelectorAll('.wpn').forEach((x) => x.classList.toggle('on', x === b));
+      if (this.preview) this.preview.select(id, b.dataset.w, false);
+    }));
     if (this.preview) {
+      if (!this.weaponThumbs) this.weaponThumbs = {};
+      if (!this.weaponThumbs[id]) {
+        this.weaponThumbs[id] = this.preview.weaponThumbs(id);
+        el.querySelectorAll('.wpn').forEach((b) => {
+          const art = b.querySelector('.wpn-art');
+          const img = document.createElement('img');
+          img.src = this.weaponThumbs[id][b.dataset.w];
+          art.prepend(img);
+        });
+      }
       $('.hd-preview', el).appendChild(this.preview.canvas);
-      this.preview.select(id);
+      this.preview.select(id, wid);
     }
+  }
+
+  weaponCard(c, w, on) {
+    const thumbs = this.weaponThumbs && this.weaponThumbs[c.id];
+    const names = ['Урон', 'Скорость', 'Дальность', 'Охват'];
+    const bars = w.bars.map((v, i) => `<div class="wbar"><span>${names[i]}</span><div class="wbar-track">${[1, 2, 3, 4, 5].map((k) => `<i class="${k <= v ? 'on' : ''}"></i>`).join('')}</div></div>`).join('');
+    return `<button class="wpn ${on ? 'on' : ''}" data-w="${w.id}">
+      <div class="wpn-art">${thumbs ? `<img src="${thumbs[w.id]}" alt="" />` : ''}<span class="wpn-ico">${icon(w.icon, 18)}</span><span class="wpn-check">${icon('star', 12)} Выбрано</span></div>
+      <div class="wpn-body">
+        <span class="wpn-style">${w.style}</span>
+        <b>${w.name}</b>
+        <div class="wbars">${bars}</div>
+        <p>${w.desc}</p>
+      </div>
+    </button>`;
+  }
+
+  weaponOf(id) {
+    const c = charById(id);
+    const w = this.weaponSel[id];
+    return c.weapons.some((x) => x.id === w) ? w : c.weapons[0].id;
   }
 
   // Вызывается после загрузки моделей: портреты для карточек и 3D-превью
@@ -307,7 +351,7 @@ export class UI {
     this.applyAudio();
     audio.play('select');
     this.hideAll();
-    this.game.start(this.selected);
+    this.game.start(this.selected, this.weaponOf(this.selected));
   }
 
   startPreview() {
@@ -597,19 +641,21 @@ export class UI {
   heroSheet(p) {
     const c = p.char, s = p.s;
     const pc = (v) => Math.round(v * 100) + '%';
-    const rate = c.weapon.rate * s.rateMult;
-    const projs = c.weapon.pellets ? c.weapon.pellets + s.extraProj * 2 : 1 + s.extraProj;
+    const rate = p.weapon.rate * s.rateMult;
+    const projs = 1 + s.extraProj;
     const cd = Math.max(0.8, c.ability.cd * s.cdMult);
     const st = [
-      ['Здоровье', `${Math.ceil(p.hp)} / ${Math.round(s.maxHp)}`], ['Урон', `${Math.round(c.weapon.damage * s.dmgMult)} (${pc(s.dmgMult)})`],
+      ['Здоровье', `${Math.ceil(p.hp)} / ${Math.round(s.maxHp)}`], ['Урон', `${Math.round(this.game.playerDamage())} (${pc(s.dmgMult * p.weaponMult)})`],
       ['Скорость атаки', `${rate.toFixed(1)} / сек.`], ['Снарядов', projs], ['Шанс крита', pc(s.crit)], ['Урон крита', '×' + s.critMult.toFixed(1)],
       ['Броня', pc(s.armor)], ['Регенерация', `${s.regen.toFixed(1)} / сек.`], ['Скорость', pc(s.speedMult)], ['Пробивание', s.pierce],
       ['Перезарядка', `${cd.toFixed(1)} сек.`], ['Радиус сбора', pc(s.magnet)],
     ];
+    if (s.dodge > 0) st.push(['Уклонение', pc(s.dodge)]);
     return `
       <div class="sheet" style="--c:${c.color}">
         <div class="sheet-head"><b>${c.name}</b><span>${c.title} · уровень ${p.level}</span></div>
-        <div class="info-row">${icon('sword', 20)}<div><b>${c.weapon.name}</b><span>${c.weapon.desc} Атакует сама, по ближайшему видимому врагу.</span></div></div>
+        ${this.gearRow(p, 'weapon')}
+        ${this.gearRow(p, 'armor')}
         <div class="info-row">${icon('star', 20)}<div><b>${c.passive.name}</b><span>${c.passive.desc}</span></div></div>
         <div class="info-row main">${icon(c.ability.icon, 20)}<div><b>${c.ability.name} · ${cd.toFixed(1)} сек.</b><span>${c.ability.desc} Клавиша Space.</span></div></div>
         <div class="stat-grid">${st.map(([k, v]) => `<div><span>${k}</span><b>${v}</b></div>`).join('')}</div>
@@ -619,6 +665,18 @@ export class UI {
           return `<div class="branch ${n ? 'on' : ''}">${icon(b.icon, 18)}<div><b>${b.name} <em>${n ? `даров: ${n}${n >= 2 ? ' · вершина открыта' : ''}` : 'не выбран'}</em></b><span>${b.desc}</span></div></div>`;
         }).join('')}</div>
       </div>`;
+  }
+
+  // Оружие или броня героя: имя по кузне, редкость, ступени направлений и легенды
+  gearRow(p, slot) {
+    const f = p.forge[slot];
+    const r = rarityOf(f.lvl);
+    const fams = famsOf(slot);
+    const base = slot === 'weapon' ? p.weapon.desc + ' Атакует сама, по ближайшему видимому врагу.' : `Базовая броня ${Math.round(p.char.armor.base * 100)}%. Улучшается в кузне у костра.`;
+    const steps = Object.entries(f.fams).map(([id, n]) => `<i style="--f:${fams[id].color}">${fams[id].name} ${n}${n >= LEGEND_AT ? ' ★' : ''}</i>`).join('');
+    const legends = Object.entries(f.fams).filter(([, n]) => n >= LEGEND_AT).map(([id]) => `<em class="legend">★ ${fams[id].legend.name}: ${fams[id].legend.desc}</em>`).join('');
+    const ic = slot === 'weapon' ? p.weapon.icon : p.char.armor.icon;
+    return `<div class="info-row gear-row" style="--r:${r.color}">${icon(ic, 20)}<div><b>${forgeName(p, slot)} <em>${r.name}${f.lvl ? ` · ступень ${f.lvl}/${MAX_FORGE}` : ''}</em></b><span>${base}</span>${steps ? `<div class="fams">${steps}</div>` : ''}${legends}</div></div>`;
   }
 
   giftList(p) {
@@ -686,19 +744,14 @@ export class UI {
           <div class="gear-inner">${this.heroSheet(p)}<div class="sect">Артефакты</div>${this.itemList(p)}</div>
         </div>
         <div class="counter">
-          <div class="wares">${g.shopOffers
-            .map((it, i) => {
-              const t = TIERS[it.tier];
-              const price = itemPrice(it, g.wave);
-              const have = p.itemCount[it.id] || 0;
-              const can = !it.sold && g.gold >= price;
-              return `<div class="ware ${it.sold ? 'sold' : ''} ${can ? 'can' : ''}" style="--r:${t.color};--d:${i * 70}ms">
-                <div class="ware-top"><span class="ware-ico">${icon(it.icon, 30, 1.7)}</span><div><span class="ware-tier">${t.name}${have ? ` · есть ×${have}` : ''}</span><b class="ware-name">${it.name}</b></div></div>
-                <p class="ware-desc">${it.desc}</p>
-                <button class="seal buy" data-i="${i}" ${it.sold || !can ? 'disabled' : ''}>${it.sold ? 'Продано' : `${icon('coin', 15)}<b>${price}</b>`}</button>
-              </div>`;
-            })
-            .join('')}</div>
+          ${this.statStrip(g)}
+          <div class="wares">
+            ${['weapon', 'armor'].map((slot) => this.stallHtml(g, slot)).join('')}
+            <div class="stall stall-relic">
+              <div class="stall-head">${icon('star', 20)}<div><b>Диковины</b><em>артефакты из склепа</em></div></div>
+              <div class="stall-items">${g.shopOffers.map((o, i) => (o.kind === 'item' ? this.wareHtml(g, o, i) : '')).join('')}</div>
+            </div>
+          </div>
           <div class="lobby-actions">
             <button class="btn btn-ghost btn-sm" data-act="gear">${icon('shield', 18)} Снаряжение</button>
             <button class="btn btn-ghost btn-sm" data-act="reroll" ${g.gold < rp ? 'disabled' : ''}>${icon('dice', 18)} Другой товар · ${rp === 0 ? 'бесплатно' : rp}</button>
@@ -707,9 +760,14 @@ export class UI {
         </div>
       </div>`;
     el.querySelectorAll('.buy').forEach((b) => (b.onclick = () => {
+      const o = g.shopOffers[+b.dataset.i];
+      const before = this.heroStats(g);
       if (g.buyItem(+b.dataset.i)) {
+        this.statDelta = { before, t: performance.now() };
         g.view.lobbyEvent('buy');
-        this.shopLine = pickLine(LINES.buy);
+        this.shopLine = g.lastLegend ? `«${g.lastLegend.name}» пробудилось. Теперь это оружие помнит кровь.` : o.kind === 'forge' ? pickLine(LINES.forge) : pickLine(LINES.buy);
+        if (g.lastLegend && o.slot === 'armor') this.shopLine = `«${g.lastLegend.name}» пробудилось. Такую броню не пробить и смерти.`;
+        g.lastLegend = null;
         this.refreshUpgrades(g);
         this.renderShop(g);
       }
@@ -730,6 +788,79 @@ export class UI {
       this.gearOpen = !this.gearOpen;
       el.querySelector('.gear').classList.toggle('open', this.gearOpen);
     });
+  }
+
+  // Основные характеристики героя — числами, для сравнения до и после покупки
+  heroStats(g) {
+    const p = g.player, s = p.s;
+    const rate = p.weapon.rate * Math.max(0.2, s.rateMult) * p.mods.rate;
+    return [
+      { k: 'hp', ic: 'heart', n: 'Здоровье', v: Math.round(s.maxHp), f: (v) => v },
+      { k: 'dmg', ic: 'sword', n: 'Урон', v: g.playerDamage(), f: (v) => Math.round(v) },
+      { k: 'dps', ic: 'burst', n: 'Урон в сек.', v: g.playerDamage() * rate, f: (v) => Math.round(v) },
+      { k: 'rate', ic: 'zap', n: 'Атак в сек.', v: rate, f: (v) => v.toFixed(2) },
+      { k: 'crit', ic: 'target', n: 'Крит', v: s.crit, f: (v) => Math.round(v * 100) + '%' },
+      { k: 'armor', ic: 'shield', n: 'Броня', v: Math.min(0.8, s.armor), f: (v) => Math.round(v * 100) + '%' },
+      { k: 'dodge', ic: 'eye', n: 'Уклонение', v: s.dodge, f: (v) => Math.round(v * 100) + '%' },
+      { k: 'regen', ic: 'regen', n: 'Реген', v: s.regen, f: (v) => v.toFixed(1) },
+      { k: 'speed', ic: 'wind', n: 'Скорость', v: s.speedMult, f: (v) => Math.round(v * 100) + '%' },
+    ];
+  }
+
+  statStrip(g) {
+    const cur = this.heroStats(g);
+    const d = this.statDelta && performance.now() - this.statDelta.t < 400 ? this.statDelta.before : null;
+    this.statDelta = null;
+    return `<div class="stat-strip">${cur.map((st, i) => {
+      const prev = d ? d[i].v : st.v;
+      const diff = st.v - prev;
+      const up = Math.abs(diff) > 1e-6;
+      return `<div class="sstat ${up ? (diff > 0 ? 'up' : 'down') : ''}" title="${st.n}">${icon(st.ic, 15)}<span>${st.n}</span><b>${st.f(st.v)}</b>${up ? `<em>${diff > 0 ? '▲' : '▼'} ${st.f(Math.abs(diff))}</em>` : ''}</div>`;
+    }).join('')}</div>`;
+  }
+
+  stallHtml(g, slot) {
+    const p = g.player;
+    const f = p.forge[slot];
+    const r = rarityOf(f.lvl);
+    const ic = slot === 'weapon' ? p.weapon.icon : p.char.armor.icon;
+    const cards = g.shopOffers.map((o, i) => (o.kind === 'forge' && o.slot === slot ? this.wareHtml(g, o, i) : '')).join('');
+    return `<div class="stall" style="--r:${r.color}">
+      <div class="stall-head">${icon(ic, 20)}<div><b>${forgeName(p, slot)}</b><em>${slot === 'weapon' ? 'Оружие' : 'Броня'} · ${r.name}${f.lvl ? ` · ${f.lvl}/${MAX_FORGE}` : ''}</em></div></div>
+      <div class="stall-items">${cards || '<div class="muted stall-max">Предел мастерства достигнут</div>'}</div>
+    </div>`;
+  }
+
+  wareHtml(g, o, i) {
+    const p = g.player;
+    const price = g.offerPrice(o);
+    const avail = g.offerAvailable(o);
+    const can = avail && g.gold >= price;
+    let color, kicker, name, desc, ic;
+    if (o.kind === 'forge') {
+      const fam = famsOf(o.slot)[o.fam];
+      const n = p.forge[o.slot].fams[o.fam] || 0;
+      const next = rarityOf(p.forge[o.slot].lvl + 1);
+      color = fam.color;
+      ic = fam.icon;
+      kicker = `${o.slot === 'weapon' ? 'Закалка' : 'Укрепление'} · ступень ${n + 1}${n + 1 === LEGEND_AT ? ' · легенда' : ''}`;
+      const cur = rarityOf(p.forge[o.slot].lvl);
+      name = next !== cur ? `${fam.name} <span class="to" style="color:${next.color}">→ ${next.name}</span>` : fam.name;
+      desc = stepDesc(p, o.slot, o.fam);
+    } else {
+      const t = TIERS[o.tier];
+      const have = p.itemCount[o.id] || 0;
+      color = t.color;
+      ic = o.icon;
+      kicker = `${t.name}${have ? ` · есть ×${have}` : ''}`;
+      name = o.name;
+      desc = o.desc;
+    }
+    return `<div class="ware ${!avail ? 'sold' : ''} ${can ? 'can' : ''}" style="--r:${color};--d:${i * 60}ms">
+      <span class="ware-ico">${icon(ic, 24, 1.7)}</span>
+      <div class="ware-body"><span class="ware-tier">${kicker}</span><b class="ware-name">${name}</b><p class="ware-desc">${desc}</p></div>
+      <button class="seal buy" data-i="${i}" ${!can ? 'disabled' : ''}>${!avail ? 'Куплено' : `${icon('coin', 14)}<b>${price}</b>`}</button>
+    </div>`;
   }
 
   hideShop() {

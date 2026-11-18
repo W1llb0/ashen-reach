@@ -617,7 +617,7 @@ h2 {
 .card-name { font-family: var(--display); font-weight: 700; font-size: 25px; line-height: 1.05; color: var(--gold-hi); }
 .card-tag { font-size: 13px; color: var(--muted); margin-top: 6px; }
 .card-desc { margin-top: 12px; font-size: 16px; line-height: 1.45; color: var(--text); }
-.card.r-epic::before, .card.r-legendary::before {
+.card.r-epic::before, .card.r-legendary::before, .card.r-mythic::before {
   content: '';
   position: absolute;
   inset: -50%;
@@ -625,7 +625,7 @@ h2 {
   animation: spinSlow 4s linear infinite;
   z-index: -2;
 }
-.card.r-epic::after, .card.r-legendary::after {
+.card.r-epic::after, .card.r-legendary::after, .card.r-mythic::after {
   content: '';
   position: absolute;
   inset: 2px;
@@ -636,6 +636,9 @@ h2 {
   z-index: -1;
 }
 .card.r-legendary .card-name { color: #ffe39a; text-shadow: 0 0 16px rgba(255, 190, 60, 0.6); }
+.card.r-mythic::before { background: conic-gradient(from 0deg, transparent 0 40%, #ff5a8a 55%, #b070ff 70%, transparent 82%, #ff5a8a 95%, transparent 100%); animation-duration: 2.6s; }
+.card.r-mythic .card-name { color: #ffd0e0; text-shadow: 0 0 18px rgba(255, 70, 130, 0.7); }
+.card.r-mythic .card-tag { color: #ff8ab0; font-weight: 700; letter-spacing: 0.06em; }
 .lu-foot kbd { margin-left: 4px; }
 
 /* ---------- Пауза ---------- */
@@ -978,3 +981,94 @@ body.touch #abilityBtn { width: 86px; height: 86px; }
 .branch.on { border-color: #e25560; background: rgba(176, 28, 40, 0.14); }
 .sheet .branches { grid-template-columns: 1fr; }
 @media (max-width: 900px) { .branches { grid-template-columns: 1fr; } }
+
+/* ---------- Выбор оружия героя ---------- */
+.hd-sect { margin: 18px 0 10px; }
+.weapon-pick { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.wpn {
+  position: relative; display: flex; flex-direction: column; text-align: left; padding: 0; border-radius: 6px; cursor: pointer; color: var(--text); font: inherit; overflow: hidden;
+  background: linear-gradient(180deg, rgba(30, 18, 16, 0.85), rgba(10, 6, 7, 0.92)); border: 1px solid var(--line);
+  transition: border-color 0.18s, transform 0.18s, box-shadow 0.18s, filter 0.18s; filter: saturate(0.55) brightness(0.82);
+}
+.wpn:hover { transform: translateY(-3px); filter: none; border-color: color-mix(in srgb, var(--c) 50%, transparent); }
+.wpn.on { filter: none; border-color: var(--c); box-shadow: 0 0 0 1px var(--c), 0 10px 30px rgba(0, 0, 0, 0.55), 0 0 26px color-mix(in srgb, var(--c) 30%, transparent); }
+.wpn-art { position: relative; height: 124px; overflow: hidden; display: grid; place-items: center; background: radial-gradient(ellipse at 50% 75%, color-mix(in srgb, var(--c) 32%, transparent), transparent 65%), linear-gradient(180deg, rgba(0, 0, 0, 0.1), rgba(0, 0, 0, 0.45)); border-bottom: 1px solid color-mix(in srgb, var(--c) 30%, transparent); }
+.wpn-art img { height: 124px; width: auto; max-width: 100%; object-fit: contain; pointer-events: none; }
+.wpn-ico { position: absolute; left: 8px; top: 8px; width: 30px; height: 30px; display: grid; place-items: center; border-radius: 50%; color: var(--c); background: rgba(8, 4, 6, 0.8); border: 1px solid color-mix(in srgb, var(--c) 55%, transparent); }
+.wpn-check { position: absolute; right: 8px; top: 9px; display: none; align-items: center; gap: 4px; padding: 3px 9px; border-radius: 12px; font-size: 11px; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; color: #160c08; background: var(--c); }
+.wpn.on .wpn-check { display: inline-flex; }
+.wpn-body { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 0; }
+.wpn-style { font-size: 11px; font-weight: 800; letter-spacing: 0.16em; text-transform: uppercase; color: var(--c); }
+.wpn-body b { font-family: var(--display); font-size: 18px; line-height: 1.1; color: var(--gold-hi); }
+.wbars { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 12px; margin: 4px 0 2px; }
+.wbar { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 12px; color: var(--muted); }
+.wbar-track { display: flex; gap: 3px; }
+.wbar-track i { width: 9px; height: 5px; border-radius: 1px; background: rgba(255, 220, 150, 0.12); transform: skewX(-20deg); }
+.wbar-track i.on { background: var(--c); box-shadow: 0 0 5px color-mix(in srgb, var(--c) 60%, transparent); }
+.wpn-body p { margin: 2px 0 0; font-size: 13px; line-height: 1.35; color: var(--muted); }
+.hd-abilities.two { grid-template-columns: repeat(2, 1fr); margin-top: 12px; }
+@media (max-width: 900px) {
+  .weapon-pick, .hd-abilities.two { grid-template-columns: 1fr; }
+  .wpn { flex-direction: row; width: 100%; }
+  .wpn-body { padding: 8px 10px 10px; }
+  .wpn-body b { font-size: 16px; }
+  .wbars { gap: 2px 8px; }
+  .wbar { font-size: 11px; gap: 4px; }
+  .wbar-track { gap: 2px; }
+  .wbar-track i { width: 6px; }
+  .wpn-art { width: 92px; }
+  .wpn-art img { width: 92px; }
+  .wpn-art { height: auto; flex: none; border-bottom: none; border-right: 1px solid color-mix(in srgb, var(--c) 30%, transparent); }
+  .wpn-check { top: auto; bottom: 6px; right: 50%; transform: translateX(50%); }
+}
+
+/* ---------- Лавка: кузня оружия и брони, диковины ---------- */
+.wares { grid-template-columns: repeat(3, minmax(0, 360px)); align-items: stretch; }
+.stall { --r: #c9b48e; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.stall-head { display: flex; gap: 9px; align-items: center; padding: 2px 4px 6px; border-bottom: 1px solid color-mix(in srgb, var(--r) 35%, transparent); }
+.stall-head .ico { color: var(--r); flex: none; filter: drop-shadow(0 0 6px color-mix(in srgb, var(--r) 50%, transparent)); }
+.stall-head b { display: block; font-family: var(--display); font-size: 15px; line-height: 1.15; color: var(--gold-hi); }
+.stall-head em { display: block; font-style: normal; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--r); font-weight: 700; }
+.stall-relic .stall-head .ico { color: var(--gold); }
+.stall-items { display: flex; flex-direction: column; gap: 8px; flex: 1; }
+.stall-max { padding: 18px 8px; text-align: center; font-style: italic; }
+.wares .ware { flex-direction: row; align-items: center; gap: 10px; padding: 9px 10px; }
+.wares .ware:hover { transform: translateY(-3px); }
+.wares .ware-ico { width: 40px; height: 40px; }
+.ware-body { flex: 1; min-width: 0; }
+.wares .ware-name { font-size: 15px; }
+.ware-name .to { font-family: var(--body); font-size: 12px; font-weight: 700; margin-left: 4px; }
+.wares .ware-desc { margin: 3px 0 0; font-size: 13px; line-height: 1.3; color: var(--muted); }
+.wares .seal { flex: none; padding: 6px 12px 6px 10px; }
+.wares .seal b { font-size: 16px; }
+@media (max-width: 1100px) { .wares { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 900px) {
+  .wares { grid-template-columns: 1fr; max-height: 56vh; overflow-y: auto; }
+  .counter { padding-bottom: 10px; }
+}
+
+/* ---------- Снаряжение на паузе ---------- */
+.gear-row b em { color: var(--r) !important; }
+.gear-row .ico { color: var(--r); }
+.fams { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+.fams i { font-style: normal; font-size: 12px; font-weight: 700; padding: 1px 8px; border-radius: 10px; color: var(--f); border: 1px solid color-mix(in srgb, var(--f) 50%, transparent); background: color-mix(in srgb, var(--f) 10%, transparent); }
+.gear-row .legend { display: block; margin-top: 5px; font-style: normal; font-size: 13px; color: #ffd98a; }
+
+/* ---------- Характеристики героя в лавке ---------- */
+.stat-strip { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; max-width: 1120px; }
+.sstat { position: relative; display: flex; align-items: center; gap: 6px; padding: 5px 11px; border-radius: 16px; background: rgba(10, 5, 6, 0.82); border: 1px solid var(--line-2); box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5); }
+.sstat .ico { color: var(--gold); }
+.sstat span { font-size: 12px; color: var(--muted); }
+.sstat b { font-family: var(--title); font-size: 15px; color: var(--gold-hi); }
+.sstat em { position: absolute; top: -13px; right: 4px; font-style: normal; font-size: 11px; font-weight: 800; padding: 0 5px; border-radius: 8px; animation: statPop 2.6s ease-out forwards; }
+.sstat.up { border-color: #6fe08a; box-shadow: 0 0 14px rgba(110, 224, 138, 0.35); animation: statGlow 2.6s ease-out forwards; }
+.sstat.up em { color: #0c1a0e; background: #7dff9a; }
+.sstat.down em { color: #200608; background: #ff7a7a; }
+@keyframes statPop { 0% { transform: translateY(6px) scale(0.6); opacity: 0; } 12% { transform: none; opacity: 1; } 75% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes statGlow { 0%, 60% { border-color: #6fe08a; } 100% { border-color: var(--line-2); box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5); } }
+@media (max-width: 900px) {
+  .stat-strip { gap: 4px; }
+  .sstat { padding: 3px 8px; }
+  .sstat span { display: none; }
+  .sstat b { font-size: 13px; }
+}

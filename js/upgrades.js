@@ -1,14 +1,20 @@
 // Баффы, выдаваемые за уровень: 1 из 3 на выбор. Редкость усиливает эффект.
 import { weightedPick } from './util.js';
 
-// какие общие дары подходят герою (проектильные — только стрелкам)
-const KIT_TAGS = { spark: ['melee'], vega: ['proj'], chronos: ['spell'], bastion: ['melee'], morra: ['proj', 'summon'] };
+// уникальные эффекты, которые нельзя получить дважды (ни даром, ни в лавке)
+export function ownsUnique(p, group) {
+  if (group === 'revive') return !!(p.upg.revive || p.itemCount.phoenix);
+  if (group === 'retaliate') return !!p.s.retaliate;
+  if (group === 'tempo') return !!(p.upg.myth_heavy || p.upg.myth_squall);
+  return false;
+}
 
 export const RARITY = {
   common: { id: 'common', name: 'Обычное', color: '#c9b48e', mult: 1, weight: 62 },
   rare: { id: 'rare', name: 'Редкое', color: '#5aaee8', mult: 1.5, weight: 27 },
   epic: { id: 'epic', name: 'Эпическое', color: '#b582ff', mult: 2.1, weight: 9 },
   legendary: { id: 'legendary', name: 'Легендарное', color: '#ffc94a', mult: 3, weight: 2 },
+  mythic: { id: 'mythic', name: 'Таинство', color: '#ff5a8a', mult: 1, weight: 0 },
 };
 const ORDER = ['common', 'rare', 'epic', 'legendary'];
 
@@ -59,7 +65,7 @@ export const UPGRADES = [
     apply: (p) => { p.s.shieldCd = p.s.shieldCd ? p.s.shieldCd - 3 : 14; p.shield = 1; } },
   { id: 'vampire', name: 'Кровавая жатва', icon: 'drop', tag: 'Защита', max: 99,
     desc: (m) => `+${pct(0.07 * m)} шанс исцелиться на 2 HP при убийстве`, apply: (p, m) => (p.s.lifesteal += 0.07 * m) },
-  { id: 'retaliate', name: 'Возмездие', icon: 'spikes', tag: 'Защита', max: 1, fixed: 'epic',
+  { id: 'retaliate', group: 'retaliate', name: 'Возмездие', icon: 'spikes', tag: 'Защита', max: 1, fixed: 'epic',
     desc: () => 'При получении урона выпускает кольцо из 18 снарядов', apply: (p) => (p.s.retaliate = 1) },
 
   { id: 'speed', name: 'Лёгкая поступь', icon: 'wind', tag: 'Мобильность', max: 99,
@@ -75,10 +81,32 @@ export const UPGRADES = [
 
   { id: 'glass', name: 'Ярость берсерка', icon: 'glass', tag: 'Легенда', max: 1, fixed: 'legendary',
     desc: () => '+50% урона, но −30% макс. здоровья', apply: (p) => { p.s.dmgMult += 0.5; p.s.maxHp *= 0.7; p.hp = Math.min(p.hp, p.s.maxHp); } },
-  { id: 'revive', name: 'Слеза феникса', icon: 'flame', tag: 'Легенда', max: 1, fixed: 'legendary',
+  { id: 'revive', group: 'revive', name: 'Слеза феникса', icon: 'flame', tag: 'Легенда', max: 1, fixed: 'legendary',
     desc: () => 'Один раз воскрешает с 60% здоровья', apply: (p) => (p.s.revive += 1) },
   { id: 'overclock', name: 'Благословение воителя', icon: 'zap', tag: 'Легенда', max: 1, fixed: 'legendary',
     desc: () => '+35% скорострельности и +1 снаряд', apply: (p) => { p.s.rateMult += 0.35; p.s.extraProj += 1; } },
+
+  // --- Таинства: меняют саму механику атаки, вокруг них строится билд ---
+  { id: 'myth_trident', mythic: true, name: 'Трезубец', icon: 'split', max: 1, fixed: 'mythic',
+    desc: () => 'Каждая атака дополнительно бьёт под углом ±30° (45% урона). Цели ищутся в своих направлениях', apply: (p) => (p.flags.trident = true) },
+  { id: 'myth_twoface', mythic: true, name: 'Двуликий', icon: 'eye', max: 1, fixed: 'mythic',
+    desc: () => 'Каждая атака повторяется за спиной героя с 70% урона', apply: (p) => (p.flags.twoface = true) },
+  { id: 'myth_heavy', mythic: true, group: 'tempo', name: 'Длань титана', icon: 'burst', max: 1, fixed: 'mythic',
+    desc: () => 'Атаки на 40% реже, но урон ×2.3 и размах +35%', apply: (p) => { p.mods.rate *= 0.6; p.mods.dmg *= 2.3; p.s.size += 0.35; } },
+  { id: 'myth_squall', mythic: true, group: 'tempo', name: 'Шквал', icon: 'zap', max: 1, fixed: 'mythic',
+    desc: () => 'Атаки почти вдвое чаще (×1.9), но урон ×0.6. Сильнее раскрывает эффекты при попадании', apply: (p) => { p.mods.rate *= 1.9; p.mods.dmg *= 0.6; } },
+  { id: 'myth_chain', mythic: true, name: 'Цепная реакция', icon: 'burst', max: 1, fixed: 'mythic',
+    desc: () => 'Убитые враги взрываются (45% урона героя). Взрывы добивают соседей — и те тоже взрываются', apply: (p) => (p.flags.chainReact = true) },
+  { id: 'myth_meteor', mythic: true, name: 'Звездопад', icon: 'comet', max: 1, fixed: 'mythic',
+    desc: () => 'Каждая 5-я атака обрушивает на цель метеор: взрыв на 300% урона', apply: (p) => (p.flags.meteor = true) },
+  { id: 'myth_well', mythic: true, name: 'Чёрная воронка', icon: 'orbit', max: 1, fixed: 'mythic',
+    desc: () => 'Каждые 7 сек. в гуще врагов открывается воронка: стягивает их в кучу, ранит и схлопывается взрывом', apply: (p) => (p.flags.well = true) },
+  { id: 'myth_shards', mythic: true, name: 'Раскол', icon: 'spikes', max: 1, fixed: 'mythic',
+    desc: () => 'Из убитого врага вылетают 3 осколка (40% урона), которые тоже могут добивать', apply: (p) => (p.flags.shards = true) },
+  { id: 'myth_titan', mythic: true, name: 'Поступь великана', icon: 'tower', max: 1, fixed: 'mythic',
+    desc: () => 'Пока герой движется, каждую секунду бьёт ударной волной вокруг (90% урона, отбрасывает)', apply: (p) => (p.flags.titan = true) },
+  { id: 'myth_blood', mythic: true, name: 'Кровавая цена', icon: 'drop', max: 1, fixed: 'mythic',
+    desc: () => 'Атаки стоят здоровья (около 2 HP в сек.), но урон ×1.7, а каждое убийство лечит 2.5 HP', apply: (p) => { p.flags.bloodPrice = true; p.mods.dmg *= 1.7; } },
 
   // --- Пути развития героев (branch). Венчающий дар (cap) открывается после 2 даров пути ---
   // Бранд
@@ -195,12 +223,14 @@ function rollRarity(luck, minRarity = 0) {
 // Сгенерировать 3 варианта для выбора
 export function rollChoices(p, count = 3, bonusLuck = 0) {
   const luck = p.s.luck + bonusLuck;
-  const tags = (KIT_TAGS[p.char.id] || []);
+  const tags = p.tags || [];
   const pool = UPGRADES.filter((u) =>
     (!u.char || u.char === p.char.id) && (p.upg[u.id] || 0) < u.max &&
+    (!u.group || !ownsUnique(p, u.group)) &&
     (!u.needs || tags.includes(u.needs)) &&
     (!u.cap || ((p.branch && p.branch[u.branch]) || 0) >= 2) &&
-    (!u.req || u.req(p)));
+    (!u.req || u.req(p)) &&
+    (!u.mythic || p.level >= 3));
   const out = [];
   const used = new Set();
   for (let i = 0; i < count; i++) {
@@ -211,6 +241,7 @@ export function rollChoices(p, count = 3, bonusLuck = 0) {
       if (u.fixed === 'rare') w = 6;
       if (u.fixed === 'epic') w = 3.5 * (1 + luck * 0.6);
       if (u.fixed === 'legendary') w = 0.9 * (1 + luck);
+      if (u.mythic) w = 2.2 * (1 + luck) * (bonusLuck > 0 ? 1.6 : 1);
       if (u.char) w *= 1.5;
       if (u.branch && p.branch && p.branch[u.branch]) w *= 2.2; // выбранный путь предлагается чаще
       if (u.cap) w *= 1.6;
@@ -232,5 +263,6 @@ export function applyChoice(p, choice) {
 }
 
 for (const u of UPGRADES) if (u.branch) u.tag = 'Путь: ' + u.branch;
+for (const u of UPGRADES) if (u.mythic) u.tag = 'Таинство · меняет атаку';
 
 export const upgradeById = (id) => UPGRADES.find((u) => u.id === id) || FALLBACK;
