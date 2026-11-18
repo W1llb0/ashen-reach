@@ -1,6 +1,10 @@
 // Баффы, выдаваемые за уровень: 1 из 3 на выбор. Редкость усиливает эффект.
 import { weightedPick } from './util.js';
 
+// таинств за забег не больше трёх: билд строится вокруг пары ключевых механик
+export const MAX_MYTHIC = 3;
+export const mythCount = (p) => Object.keys(p.upg).filter((id) => id.startsWith('myth_')).length;
+
 // уникальные эффекты, которые нельзя получить дважды (ни даром, ни в лавке)
 export function ownsUnique(p, group) {
   if (group === 'revive') return !!(p.upg.revive || p.itemCount.phoenix);
@@ -92,7 +96,7 @@ export const UPGRADES = [
   { id: 'myth_twoface', mythic: true, name: 'Двуликий', icon: 'eye', max: 1, fixed: 'mythic',
     desc: () => 'Каждая атака повторяется за спиной героя с 70% урона', apply: (p) => (p.flags.twoface = true) },
   { id: 'myth_heavy', mythic: true, group: 'tempo', name: 'Длань титана', icon: 'burst', max: 1, fixed: 'mythic',
-    desc: () => 'Атаки на 40% реже, но урон ×2.3 и размах +35%', apply: (p) => { p.mods.rate *= 0.6; p.mods.dmg *= 2.3; p.s.size += 0.35; } },
+    desc: () => 'Атаки на 40% реже, но урон ×2 и размах +35%', apply: (p) => { p.mods.rate *= 0.6; p.mods.dmg *= 2; p.s.size += 0.35; } },
   { id: 'myth_squall', mythic: true, group: 'tempo', name: 'Шквал', icon: 'zap', max: 1, fixed: 'mythic',
     desc: () => 'Атаки почти вдвое чаще (×1.9), но урон ×0.6. Сильнее раскрывает эффекты при попадании', apply: (p) => { p.mods.rate *= 1.9; p.mods.dmg *= 0.6; } },
   { id: 'myth_chain', mythic: true, name: 'Цепная реакция', icon: 'burst', max: 1, fixed: 'mythic',
@@ -106,7 +110,7 @@ export const UPGRADES = [
   { id: 'myth_titan', mythic: true, name: 'Поступь великана', icon: 'tower', max: 1, fixed: 'mythic',
     desc: () => 'Пока герой движется, каждую секунду бьёт ударной волной вокруг (90% урона, отбрасывает)', apply: (p) => (p.flags.titan = true) },
   { id: 'myth_blood', mythic: true, name: 'Кровавая цена', icon: 'drop', max: 1, fixed: 'mythic',
-    desc: () => 'Атаки стоят здоровья (около 2 HP в сек.), но урон ×1.7, а каждое убийство лечит 2.5 HP', apply: (p) => { p.flags.bloodPrice = true; p.mods.dmg *= 1.7; } },
+    desc: () => 'Атаки стоят здоровья (около 2 HP в сек.), но урон ×1.45, а каждое убийство лечит 2 HP', apply: (p) => { p.flags.bloodPrice = true; p.mods.dmg *= 1.45; } },
 
   // --- Пути развития героев (branch). Венчающий дар (cap) открывается после 2 даров пути ---
   // Бранд
@@ -230,7 +234,7 @@ export function rollChoices(p, count = 3, bonusLuck = 0) {
     (!u.needs || tags.includes(u.needs)) &&
     (!u.cap || ((p.branch && p.branch[u.branch]) || 0) >= 2) &&
     (!u.req || u.req(p)) &&
-    (!u.mythic || p.level >= 3));
+    (!u.mythic || (p.level >= 3 && mythCount(p) < MAX_MYTHIC)));
   const out = [];
   const used = new Set();
   for (let i = 0; i < count; i++) {
@@ -241,7 +245,7 @@ export function rollChoices(p, count = 3, bonusLuck = 0) {
       if (u.fixed === 'rare') w = 6;
       if (u.fixed === 'epic') w = 3.5 * (1 + luck * 0.6);
       if (u.fixed === 'legendary') w = 0.9 * (1 + luck);
-      if (u.mythic) w = 2.2 * (1 + luck) * (bonusLuck > 0 ? 1.6 : 1);
+      if (u.mythic) w = 1.8 * (1 + luck) * (bonusLuck > 0 ? 1.6 : 1);
       if (u.char) w *= 1.5;
       if (u.branch && p.branch && p.branch[u.branch]) w *= 2.2; // выбранный путь предлагается чаще
       if (u.cap) w *= 1.6;

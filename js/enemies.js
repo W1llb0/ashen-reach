@@ -8,14 +8,14 @@ import { TAU, rand, angleTo, dist, pick, clamp } from './util.js';
 export const ENEMY_TYPES = {
   drone: { name: 'Скелет-прислужник', hp: 14, speed: 100, r: 12, dmg: 10, xp: 1, color: '#e8dcc0', ai: 'chase' },
   mite: { name: 'Летучий череп', hp: 7, speed: 175, r: 9, dmg: 6, xp: 1, color: '#b080ff', ai: 'chase' },
-  gunner: { name: 'Костяной лучник', hp: 24, speed: 90, r: 13, dmg: 10, xp: 2, color: '#5fe0d0', ai: 'kite', range: 340, fire: { cd: 2.9, n: 1, spread: 0.18, speed: 240 } },
+  gunner: { name: 'Костяной лучник', hp: 24, speed: 90, r: 13, dmg: 10, xp: 2, color: '#5fe0d0', ai: 'kite', range: 340, fire: { cd: 2.3, n: 1, spread: 0.18, speed: 270 } },
   dasher: { name: 'Синий бес', hp: 26, speed: 82, r: 13, dmg: 14, xp: 2, color: '#4aa0ff', ai: 'dash' },
   bomber: { name: 'Плачущий дух', hp: 22, speed: 125, r: 14, dmg: 24, xp: 2, color: '#9fe0ff', ai: 'kamikaze' },
   splitter: { name: 'Каменный голем', hp: 60, speed: 70, r: 20, dmg: 12, xp: 3, color: '#9dff3d', ai: 'chase', split: 'shard' },
   shard: { name: 'Осколок голема', hp: 12, speed: 150, r: 10, dmg: 7, xp: 1, color: '#9dff3d', ai: 'chase' },
   artillery: { name: 'Костяной метатель', hp: 30, speed: 80, r: 13, dmg: 20, xp: 3, color: '#ff8a3d', ai: 'artillery', range: 440 },
   shaman: { name: 'Маска-целитель', hp: 45, speed: 95, r: 14, dmg: 8, xp: 4, color: '#6aff9a', ai: 'healer' },
-  spinner: { name: 'Костяной колдун', hp: 60, speed: 45, r: 16, dmg: 10, xp: 4, color: '#ff4fa0', ai: 'drift', fire: { cd: 0.17, arms: 2, speed: 150, burst: 1.5, rest: 3.8 } },
+  spinner: { name: 'Костяной колдун', hp: 60, speed: 45, r: 16, dmg: 10, xp: 4, color: '#ff4fa0', ai: 'drift', fire: { cd: 0.17, arms: 2, speed: 165, burst: 1.5, rest: 3.0 } },
   brute: { name: 'Орк-громила', hp: 160, speed: 62, r: 22, dmg: 26, xp: 6, color: '#ff9a50', ai: 'brute' },
   summoner: { name: 'Некромант', hp: 70, speed: 70, r: 15, dmg: 8, xp: 6, color: '#c890ff', ai: 'summoner', range: 420 },
   blinker: { name: 'Вихрь-призрак', hp: 36, speed: 0, r: 13, dmg: 10, xp: 4, color: '#ff70e0', ai: 'blink' },
@@ -77,12 +77,12 @@ export function makeElite(e) {
   e.hp = e.maxHp = e.maxHp * 5;
   e.r *= 1.4;
   e.dmg *= 1.4;
-  e.xp *= 6;
+  e.xp *= 3;
 }
 
 export function createBoss(id, wave) {
   const b = BOSSES[id];
-  const hp = b.hp * 1.2 * (1 + Math.max(0, wave - 10) * 0.05);
+  const hp = b.hp * 1.3 * (1 + Math.max(0, wave - 10) * 0.09);
   return {
     type: 'boss', def: b, bossDef: b, x: 0, y: 0, vx: 0, vy: 0, kbx: 0, kby: 0,
     r: b.r, hp, maxHp: hp, speed: b.speed, dmg: 22 + wave * 1.5, xp: b.xp,
@@ -326,8 +326,9 @@ function updateBoss(e, g, dt, a, d) {
   }
   if (e.spawnT > 0) return;
 
-  const rate = e.enraged ? 1.3 : 1;
-  e.stateT -= dt;
+  // боссы атакуют чаще и почти без передышки, в ярости — ещё быстрее
+  const rate = e.enraged ? 1.45 : 1.15;
+  e.stateT -= dt * rate;
   if (e.atk < 0) {
     if (e.stateT <= 0) {
       e.atkIndex = (e.atkIndex + 1) % b.attacks.length;
@@ -551,7 +552,7 @@ function updateBoss(e, g, dt, a, d) {
   }
   if (e.atkT >= dur) {
     e.atk = -1;
-    e.stateT = e.enraged ? 0.7 : 1.3;
+    e.stateT = e.enraged ? 0.5 : 1.0;
   }
 }
 

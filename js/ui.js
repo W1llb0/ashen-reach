@@ -749,7 +749,7 @@ export class UI {
             ${['weapon', 'armor'].map((slot) => this.stallHtml(g, slot)).join('')}
             <div class="stall stall-relic">
               <div class="stall-head">${icon('star', 20)}<div><b>Диковины</b><em>артефакты из склепа</em></div></div>
-              <div class="stall-items">${g.shopOffers.map((o, i) => (o.kind === 'item' ? this.wareHtml(g, o, i) : '')).join('')}</div>
+              <div class="stall-items">${g.shopOffers.map((o, i) => (o.kind === 'item' || o.kind === 'heal' ? this.wareHtml(g, o, i) : '')).join('')}</div>
             </div>
           </div>
           <div class="lobby-actions">
@@ -847,6 +847,12 @@ export class UI {
       const cur = rarityOf(p.forge[o.slot].lvl);
       name = next !== cur ? `${fam.name} <span class="to" style="color:${next.color}">→ ${next.name}</span>` : fam.name;
       desc = stepDesc(p, o.slot, o.fam);
+    } else if (o.kind === 'heal') {
+      color = '#ff6a7a';
+      ic = 'heart';
+      kicker = `Здоровье ${Math.ceil(p.hp)} / ${Math.round(p.s.maxHp)}`;
+      name = 'Отвар знахаря';
+      desc = 'Восстанавливает 50% здоровья. Между волнами раны заживают лишь наполовину.';
     } else {
       const t = TIERS[o.tier];
       const have = p.itemCount[o.id] || 0;
@@ -859,7 +865,7 @@ export class UI {
     return `<div class="ware ${!avail ? 'sold' : ''} ${can ? 'can' : ''}" style="--r:${color};--d:${i * 60}ms">
       <span class="ware-ico">${icon(ic, 24, 1.7)}</span>
       <div class="ware-body"><span class="ware-tier">${kicker}</span><b class="ware-name">${name}</b><p class="ware-desc">${desc}</p></div>
-      <button class="seal buy" data-i="${i}" ${!can ? 'disabled' : ''}>${!avail ? 'Куплено' : `${icon('coin', 14)}<b>${price}</b>`}</button>
+      <button class="seal buy" data-i="${i}" ${!can ? 'disabled' : ''}>${!avail ? (o.kind === 'heal' && !o.sold ? 'Здоров' : 'Куплено') : `${icon('coin', 14)}<b>${price}</b>`}</button>
     </div>`;
   }
 

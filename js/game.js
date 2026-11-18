@@ -25,6 +25,9 @@ const GEM_TIERS = [
 ];
 
 // каждый уровень требует заметно больше опыта, чем предыдущий
+// доля опыта и золота с кристаллов: уровни и покупки не должны опережать рост врагов
+const XP_RATE = 0.36;
+const GOLD_RATE = 0.95;
 export const xpFor = (l) => Math.floor(9 + (l - 1) * 7 + Math.pow(l - 1, 1.95) * 0.8);
 
 export class Game {
@@ -133,11 +136,13 @@ export class Game {
     this.wavePhase = 'fight';
     this.waveDur = isBossWave(n) ? Infinity : waveDuration(n);
     this.spawnT = 0.6;
+    this.waveChests = 0;
     this.endWaveT = 0;
     this.bossPending = isBossWave(n) ? 2 : 0;
-    this.swarmAt = !isBossWave(n) && n >= 5 && n % 4 === 1 ? this.waveDur * 0.5 : -1;
+    this.swarmAt = !isBossWave(n) && n >= 3 && n % 3 === 0 ? this.waveDur * 0.5 : -1;
     const p = this.player;
-    p.hp = p.s.maxHp;
+    // между волнами раны заживают лишь частично — урон копится
+    p.hp = n === 1 ? p.s.maxHp : Math.min(p.s.maxHp, p.hp + p.s.maxHp * 0.5);
     p.invuln = 1.5;
     p.abilityCd = 0;
     this.bullets.length = 0;
@@ -154,7 +159,7 @@ export class Game {
   waveScale() {
     // враги крепнут с каждой волной: здоровье растёт быстрее урона, чтобы бой не превращался в ваншоты
     const w = this.wave - 1;
-    return { hp: 1 + w * 0.3 + w * w * 0.034, dmg: 1 + w * 0.095 + w * w * 0.0015, spd: 1 + w * 0.009 };
+    return { hp: 1 + w * 0.35 + w * w * 0.065, dmg: 1 + w * 0.13 + w * w * 0.003, spd: 1 + w * 0.017 };
   }
 
   endWave() {
@@ -207,15 +212,19 @@ export class Game {
       for (const fam of fams) out.push({ kind: 'forge', slot, fam, sold: false });
     }
     for (const it of rollShop(p, this.wave, relics)) out.push({ kind: 'item', ...it });
+    out.push({ kind: 'heal', sold: false });
     return out;
   }
 
   offerPrice(o) {
     if (o.kind === 'forge') return forgePrice(this.player.forge[o.slot].lvl, this.wave);
-    return itemPrice(o, this.wave);
+    if (o.kind === 'heal') return Math.round(12 + this.wave * 3);
+    // каждая купленная диковина делает следующие дороже
+    return Math.round(itemPrice(o, this.wave) * (1 + 0.07 * this.player.items.length));
   }
 
   offerAvailable(o) {
+    if (o.kind === 'heal') return !o.sold && this.player.hp < this.player.s.maxHp - 0.5;
     return !o.sold && (o.kind !== 'forge' || this.player.forge[o.slot].lvl < MAX_FORGE);
   }
 
@@ -227,7 +236,10 @@ export class Game {
     this.gold -= price;
     it.sold = true;
     const p = this.player;
-    if (it.kind === 'forge') {
+    if (it.kind === 'heal') {
+      p.hp = Math.min(p.s.maxHp, p.hp + p.s.maxHp * 0.5);
+      audio.play('heal');
+    } else if (it.kind === 'forge') {
       const legend = forgeStep(p, it.slot, it.fam);
       this.lastLegend = legend;
       if (legend) audio.play('levelup');
@@ -242,7 +254,7 @@ export class Game {
 
   // если всё раскуплено — новый товар бесплатно
   shopRerollPrice() {
-    return this.shopOffers && this.shopOffers.every((o) => !this.offerAvailable(o)) ? 0 : rerollPrice(this.wave, this.shopRerolls);
+    return this.shopOffers && this.shopOffers.every((o) => o.kind === 'heal' || !this.offerAvailable(o)) ? 0 : rerollPrice(this.wave, this.shopRerolls);
   }
 
   rerollShop() {
@@ -472,7 +484,7 @@ export class Game {
       if (this.clearT <= 0 && (this.gems.length === 0 || this.clearT < -2)) {
         for (const g of this.gems) {
           this.gainXp(g.v);
-          this.addGold(g.v);
+          this.addGold(g.v * GOLD_RATE);
         }
         this.gems.length = 0;
         this.wavePhase = 'rewards';
@@ -481,10 +493,13 @@ export class Game {
     }
   }
 
+  // золото копится с дробной частью, чтобы мелкие кристаллы не давали лишнего
   addGold(v) {
-    v = Math.max(1, Math.round(v));
-    this.gold += v;
-    this.stats.goldTotal += v;
+    this.goldAcc = (this.goldAcc || 0) + v;
+    const n = Math.floor(this.goldAcc);
+    this.goldAcc -= n;
+    this.gold += n;
+    this.stats.goldTotal += n;
   }
 
   // ---------- Игрок ----------
@@ -760,8 +775,11 @@ export class Game {
   spawnPos(extra = 60) {
     const p = this.player;
     const R = this.viewRadius() + extra;
+    // часть врагов выходит навстречу — от толпы не убежать по прямой
+    const mv = Math.hypot(p.vx, p.vy) > 60 && Math.random() < 0.4;
+    const ma = Math.atan2(p.vy, p.vx);
     for (let tries = 0; tries < 6; tries++) {
-      const a = rand(TAU);
+      const a = mv ? ma + rand(-0.7, 0.7) : rand(TAU);
       const x = clamp(p.x + Math.cos(a) * R, 30, ARENA - 30);
       const y = clamp(p.y + Math.sin(a) * R, 30, ARENA - 30);
       if (dist2(x, y, p.x, p.y) > 380 * 380) return { x, y };
@@ -788,16 +806,17 @@ export class Game {
     if (this.swarmAt > 0 && this.waveT >= this.swarmAt) {
       this.swarmAt = -1;
       const p = this.player;
-      const n = 16 + w;
+      const n = 20 + Math.round(w * 1.6);
       for (let i = 0; i < n; i++) {
         const a = (i / n) * TAU;
-        this.spawnEnemy(w > 8 ? 'mite' : 'drone', p.x + Math.cos(a) * 520, p.y + Math.sin(a) * 520, false, true);
+        const type = w > 8 && i % 3 === 0 ? 'mite' : w > 11 && i % 5 === 0 ? 'dasher' : 'drone';
+        this.spawnEnemy(type, p.x + Math.cos(a) * 520, p.y + Math.sin(a) * 520, false, true);
       }
       this.toast('Нежить смыкает кольцо!', '#ff7a4a');
     }
-    let rate = 1 + w * 0.34;
+    let rate = 1.2 + w * 0.4;
     if (isBossWave(w)) rate *= 0.28;
-    const cap = Math.min(MAX_ENEMIES, 44 + w * 7);
+    const cap = Math.min(MAX_ENEMIES, 50 + w * 8);
     if (this.enemies.length >= cap) return;
     this.spawnT -= dt;
     let guard = 0;
@@ -807,7 +826,7 @@ export class Game {
       const row = weightedPick(pool, (r) => r.w * (r.fresh ? 1.6 : 1));
       const pos = this.spawnPos();
       const cluster = row.type === 'drone' || row.type === 'mite' ? randInt(1, 2 + Math.floor(w / 5)) : 1;
-      const eliteChance = w >= 3 ? 0.014 + w * 0.003 : 0;
+      const eliteChance = w >= 3 ? 0.008 + w * 0.0015 : 0;
       for (let i = 0; i < cluster; i++) this.spawnEnemy(row.type, pos.x + rand(-40, 40), pos.y + rand(-40, 40), i === 0 && chance(eliteChance));
     }
   }
@@ -986,14 +1005,18 @@ export class Game {
       for (let i = 0; i < 3; i++)
         this.addProj({ kind: 'orb', x: e.x, y: e.y, angle: a0 + (i / 3) * TAU, speed: 480, r: 5, dmg: this.playerDamage() * 0.4, life: 0.5, color: p.char.color2, knock: 30 });
     }
-    if (p.flags.bloodPrice) p.hp = Math.min(s.maxHp, p.hp + 2.5);
+    if (p.flags.bloodPrice) p.hp = Math.min(s.maxHp, p.hp + 2);
     if (e.def.split) {
       for (let i = 0; i < 2; i++) this.spawnEnemy(e.def.split, e.x + rand(-15, 15), e.y + rand(-15, 15));
     }
     if (e.elite) {
       this.stats.elites++;
-      this.addGold(4 + this.wave);
-      this.pickups.push({ type: 'chest', x: e.x, y: e.y, t: 0, dead: false });
+      // сундук с даром — не с каждой элиты, иначе даров становится слишком много
+      if (this.waveChests < 1 && Math.random() < 0.5) {
+        this.waveChests++;
+        this.pickups.push({ type: 'chest', x: e.x, y: e.y, t: 0, dead: false });
+      }
+      else this.addGold(6 + this.wave * 1.5);
       this.shake(6);
     }
     if (s.lifesteal > 0 && Math.random() < s.lifesteal && p.hp < s.maxHp) {
@@ -1675,7 +1698,7 @@ export class Game {
       return;
     }
     const kitA = kitOf(p);
-    dmg *= 1 - Math.min(0.8, s.armor + (kitA.armorAdd ? kitA.armorAdd(p) : 0));
+    dmg *= 1 - Math.min(0.65, s.armor + (kitA.armorAdd ? kitA.armorAdd(p) : 0));
     if (p.flags.unbreakable) dmg = Math.min(dmg, s.maxHp * 0.2);
     // шипы брони
     if (s.thorns > 0) {
@@ -1772,7 +1795,7 @@ export class Game {
         if (d < p.r + 6) {
           g.dead = true;
           this.gainXp(g.v);
-          this.addGold(g.v);
+          this.addGold(g.v * GOLD_RATE);
           this.xpCombo++;
           this.xpComboT = 0.6;
           audio.play('xp', { combo: this.xpCombo });
@@ -1790,7 +1813,7 @@ export class Game {
 
   gainXp(v) {
     const p = this.player;
-    p.xp += v * p.s.xpMult;
+    p.xp += v * p.s.xpMult * XP_RATE;
     while (p.xp >= p.xpNext) {
       p.xp -= p.xpNext;
       p.level++;

@@ -123,7 +123,7 @@ export function forgeName(p, slot) {
 }
 
 export function forgePrice(lvl, wave) {
-  return Math.round((20 + lvl * 15) * (1 + (wave - 1) * 0.04));
+  return Math.round((25 + lvl * 22 + lvl * lvl * 3) * (1 + (wave - 1) * 0.03));
 }
 
 // Два направления на выбор; уже начатые предлагаются чаще

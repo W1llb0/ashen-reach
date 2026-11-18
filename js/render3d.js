@@ -1129,6 +1129,7 @@ export class View3D {
       this.filterOn = false;
       this.renderer.domElement.style.filter = '';
     }
+    this.bloom.strength = 0.5;
     this.renderPass.scene = L.scene;
     this.renderPass.camera = L.cam;
     this.composer.render();
@@ -1410,6 +1411,17 @@ export class View3D {
     const p = g.player;
     const t = this.time;
     const H = 1.0;
+    // Чем больше атак героя на экране и чем крупнее они, тем тусклее каждая:
+    // общая яркость не растёт до «каши» и не слепит.
+    const crowd = g.projs.length + g.slashes.length * 4 + g.bolts.length * 2 + g.clouds.length * 3 + g.wells.length * 6 + g.meteors.length * 3;
+    const sizeK = p ? Math.pow(1 / Math.max(1, p.s.size), 0.75) : 1;
+    const wantK = clamp(1.5 / Math.sqrt(1 + crowd / 8), 0.3, 1) * sizeK;
+    this.pfxK = this.pfxK == null ? wantK : this.pfxK + (wantK - this.pfxK) * Math.min(1, dt * 5);
+    const K = this.pfxK;
+    for (const l of [fx.slash, fx.slashN, fx.pGlow, fx.pCore, fx.streak, fx.ring]) l.mesh.material.color.setScalar(K);
+    fx.part.mesh.material.color.setScalar(0.35 + 0.65 * K);
+    this.beams.material.color.setScalar(0.45 + 0.55 * K);
+    this.bloom.strength = 0.5 * (0.5 + 0.5 * K);
 
     // тени под юнитами
     for (const e of this.live) {
@@ -1755,7 +1767,9 @@ export class View3D {
       gm.setMatrixAt(n, d.matrix);
       const c = this.col(gem.color);
       gm.instanceColor.setXYZ(n, c.r * 2, c.g * 2, c.b * 2);
-      fx.ground.add(x, 0.1, z, (gem.r * 5) / U, (gem.r * 5) / U, 0, c.r * 0.7, c.g * 0.7, c.b * 0.7);
+      // ореол кристаллов слабее, когда их много — иначе пол превращается в сплошное зарево
+      const gk = 0.35 * Math.min(1, 40 / Math.max(40, g.gems.length));
+      fx.ground.add(x, 0.1, z, (gem.r * 3.5) / U, (gem.r * 3.5) / U, 0, c.r * gk, c.g * gk, c.b * gk);
       n++;
     }
     gm.count = n;

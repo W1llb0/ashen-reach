@@ -8,7 +8,7 @@ export class Particles {
   constructor() {
     this.list = [];
     this.texts = [];
-    this.max = 2200;
+    this.max = 1400;
   }
 
   clear() {
@@ -25,8 +25,18 @@ export class Particles {
     this.list.push(p);
   }
 
+  // Когда частиц уже много, новые всплески становятся реже: экран не тонет в каше
+  thin(count) {
+    const n = this.list.length;
+    if (n < 450) return count;
+    const k = 450 / n;
+    const c = count * k;
+    return Math.floor(c) + (Math.random() < c % 1 ? 1 : 0);
+  }
+
   // Облако светящихся точек
   burst(x, y, color, count = 10, speed = 160, size = 6, life = 0.5) {
+    count = this.thin(count);
     for (let i = 0; i < count; i++) {
       const a = Math.random() * TAU;
       const s = speed * (0.25 + Math.random() * 0.9);
@@ -41,6 +51,7 @@ export class Particles {
 
   // Линейные искры (вылетают и тянут хвост)
   sparks(x, y, color, count = 8, speed = 320, life = 0.35, dir = null, spread = TAU) {
+    count = this.thin(count);
     for (let i = 0; i < count; i++) {
       const a = dir === null ? Math.random() * TAU : dir + (Math.random() - 0.5) * spread;
       const s = speed * (0.35 + Math.random() * 0.8);
@@ -55,6 +66,7 @@ export class Particles {
 
   // Язычки пламени, поднимающиеся вверх (в 3D — по высоте)
   flame(x, y, color = '#ff6a20', count = 1) {
+    count = this.thin(count);
     for (let i = 0; i < count; i++)
       this.add({ t: GLOW, x, y, vx: rand(-14, 14), vy: rand(-14, 14), h: rand(0.25, 0.8), vh: rand(1.4, 2.8), life: rand(0.35, 0.7), max: 0, size: rand(6, 11), color: Math.random() < 0.3 ? '#ffd070' : color, drag: 1.5 });
   }
@@ -68,7 +80,9 @@ export class Particles {
   }
 
   text(x, y, str, color = '#fff', size = 14, crit = false) {
-    if (this.texts.length > 120) this.texts.shift();
+    // мелкие числа урона прореживаются, когда их много
+    if (!crit && this.texts.length > 30 && Math.random() < (this.texts.length - 30) / 40) return;
+    if (this.texts.length > 70) this.texts.shift();
     this.texts.push({ x: x + rand(-8, 8), y, str, color, size, crit, life: crit ? 0.95 : 0.7, max: crit ? 0.95 : 0.7, vy: crit ? -90 : -60 });
   }
 
