@@ -12,7 +12,7 @@ import { input } from './input.js';
 import { ARENA } from './game.js';
 import { charById } from './characters.js';
 import { KITS } from './heroes.js';
-import { WEAPON_FAMS, ARMOR_FAMS } from './forge.js';
+import { WEAPON_FAMS, ARMOR_FAMS, ABILITY_FAMS } from './forge.js';
 import { clamp } from './util.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
@@ -28,6 +28,8 @@ export const HERO_VIS = {
   vega: { model: 'Rogue_Hooded', h: 1.65, wear: ['Rogue_Cape'], attack: '2H_Ranged_Shooting', ability: 'Dodge_Forward', pose: 'Idle' },
   chronos: { model: 'Mage', h: 1.75, wear: ['Mage_Hat', 'Mage_Cape'], attack: 'Spellcasting', ability: 'Spellcast_Raise', pose: 'Idle' },
   bastion: { model: 'Knight', h: 1.75, wear: ['Knight_Helmet', 'Knight_Cape'], attack: '1H_Melee_Attack_Chop', ability: 'Blocking', pose: 'Idle' },
+  morten: { model: 'Skeleton_Warrior', h: 1.75, wear: ['Skeleton_Warrior_Helmet', 'Skeleton_Warrior_Cloak', 'Skeleton_Warrior_Eyes', 'Skeleton_Warrior_Jaw', 'Skeleton_Warrior_Head'], attack: '1H_Melee_Attack_Chop', ability: 'Spellcast_Raise', pose: 'Idle' },
+  irven: { model: 'Skeleton_Mage', h: 1.7, wear: ['Skeleton_Mage_Hat', 'Skeleton_Mage_Eyes', 'Skeleton_Mage_Jaw', 'Skeleton_Mage_Skull'], attack: 'Spellcast_Shoot', ability: 'Spellcast_Summon', pose: 'Idle' },
   morra: { model: 'Rogue', h: 1.6, wear: ['Rogue_Cape'], attack: 'Spellcast_Shoot', ability: 'Spellcast_Summon', pose: 'Idle' },
 };
 
@@ -36,7 +38,7 @@ export function heroVis(id, weaponId) {
   const v = HERO_VIS[id];
   const ch = charById(id);
   const w = ch.weapons.find((x) => x.id === weaponId) || ch.weapons[0];
-  return { ...v, show: [...v.wear, ...w.mesh] };
+  return { ...v, show: [...v.wear, ...(w.mesh || [])], borrow: w.borrow };
 }
 
 const SKEL = { spawn: 'Spawn_Ground_Skeletons', death: 'Death_A', hit: 'Hit_A' };
@@ -331,6 +333,20 @@ export class Unit {
       o.receiveShadow = false;
       this.mats.push(o.material);
     });
+    // оружие из другой модели KayKit: риг общий, вешаем меш на ту же кость руки
+    if (vis.borrow) {
+      for (const [from, name] of vis.borrow) {
+        const src = assets.models[from] && assets.models[from].scene.getObjectByName(name);
+        const bone = src && src.parent && this.model.getObjectByName(src.parent.name);
+        if (!bone) continue;
+        const c = src.clone();
+        c.visible = true;
+        c.material = src.material.clone();
+        c.castShadow = shadow;
+        bone.add(c);
+        this.mats.push(c.material);
+      }
+    }
     this.mixer = new THREE.AnimationMixer(this.model);
     this.clips = m.clips;
     this.actions = {};
@@ -508,8 +524,8 @@ class ShopLobby {
 
     // товары парят над прилавком
     this.wareMeshes = [];
-    for (let i = 0; i < 6; i++) {
-      const m = new THREE.Mesh(new THREE.OctahedronGeometry(0.11, 0), new THREE.MeshBasicMaterial({ toneMapped: false }));
+    for (let i = 0; i < 8; i++) {
+      const m = new THREE.Mesh(new THREE.OctahedronGeometry(0.1, 0), new THREE.MeshBasicMaterial({ toneMapped: false }));
       s.add(m);
       this.wareMeshes.push(m);
     }
@@ -588,12 +604,12 @@ class ShopLobby {
       G.add(w.x, w.y, w.z, w.s * f, w.s * f, 1.3 * f, 0.55 * f, 0.2 * f);
     }
     G.add(0, 0.25, 0.7, 2.2, 1.0, 0.9, 0.3, 0.08);
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < 8; i++) {
       const m = this.wareMeshes[i];
       const it = this.offers[i];
       m.visible = !!it && !it.sold;
       if (!m.visible) continue;
-      const x = 1.75 + i * 0.4, y = 1.3 + Math.sin(t * 2 + i) * 0.07, z = 1.45;
+      const x = 1.7 + i * 0.32, y = 1.3 + Math.sin(t * 2 + i) * 0.07, z = 1.45;
       m.position.set(x, y, z);
       m.rotation.y = t * 1.5 + i;
       const c = this.view.col(it.kind === 'forge' ? (FAM_COLORS[it.fam] || '#ffc94a') : TIER_COLORS[it.tier]);
@@ -620,7 +636,7 @@ class ShopLobby {
   }
 }
 const TIER_COLORS = { 1: '#c9b48e', 2: '#5aaee8', 3: '#b582ff', 4: '#ffc94a' };
-const FAM_COLORS = Object.fromEntries([...Object.entries(WEAPON_FAMS), ...Object.entries(ARMOR_FAMS)].map(([k, f]) => [k, f.color]));
+const FAM_COLORS = Object.fromEntries([...Object.entries(WEAPON_FAMS), ...Object.entries(ARMOR_FAMS), ...Object.entries(ABILITY_FAMS)].map(([k, f]) => [k, f.color]));
 
 // ---------- Вид ----------
 export class View3D {
@@ -1590,10 +1606,11 @@ export class View3D {
         fx.shadow.add(x, 0.03, z, 0.5, 0.5, 0, 0.6, 0.6, 0.6);
       } else if (pr.kind === 'soul') {
         const sz = (pr.r * 5) / U;
-        fx.pGlow.add(x, H, z, sz, sz, 0, 0.25 * k, 1.3 * k, 0.6 * k);
-        fx.pCore.add(x, H, z, sz * 0.35, sz * 0.35, 0, 0.8 * k, 1.3 * k, 0.9 * k);
+        const hx = pr.curse > 0; // порча Ирвена — фиолетовая
+        fx.pGlow.add(x, H, z, sz, sz, 0, (hx ? 0.9 : 0.25) * k, (hx ? 0.35 : 1.3) * k, (hx ? 1.4 : 0.6) * k);
+        fx.pCore.add(x, H, z, sz * 0.35, sz * 0.35, 0, (hx ? 1.3 : 0.8) * k, (hx ? 0.9 : 1.3) * k, (hx ? 1.5 : 0.9) * k);
         const len = (pr.r * 6) / U;
-        fx.streak.add(x - (Math.cos(a) * len) / 2, H, z - (Math.sin(a) * len) / 2, len, sz * 0.5, a, 0.15 * k, 0.9 * k, 0.4 * k);
+        fx.streak.add(x - (Math.cos(a) * len) / 2, H, z - (Math.sin(a) * len) / 2, len, sz * 0.5, a, (hx ? 0.6 : 0.15) * k, (hx ? 0.2 : 0.9) * k, (hx ? 0.9 : 0.4) * k);
       } else {
         const s2 = (pr.r * (pr.kind === 'wisp' ? 6.5 : 5.5)) / U;
         fx.pGlow.add(x, H, z, s2, s2, 0, c.r * 1.1 * k, c.g * 1.1 * k, c.b * 1.1 * k);
@@ -1634,6 +1651,44 @@ export class View3D {
       fx.ground.add(c.x / U, 0.07, c.y / U, R, R, 0, 0.12 * k, 0.38 * k, 0.06 * k);
       fx.ground.add(c.x / U + Math.sin(t * 1.3 + c.x) * 0.3, 0.09, c.y / U + Math.cos(t * 1.1 + c.y) * 0.3, R * 0.7, R * 0.7, 0, 0.14 * k, 0.4 * k, 0.07 * k);
       fx.groundRing.add(c.x / U, 0.06, c.y / U, R * 0.85, R * 0.85, t * 0.5, 0.12 * k, 0.4 * k, 0.06 * k);
+    }
+
+    // тотемы Ирвена и порча на врагах
+    for (const tm of g.totems) {
+      const x = tm.x / U, z = tm.y / U;
+      const k = Math.min(1, tm.life / 0.5);
+      this.beam(x, 0, z, x, 1.5, z, 0.16, 0.9 * k, 0.85 * k, 0.75 * k);
+      fx.pGlow.add(x, 1.6, z, 0.9 * k, 0.9 * k, 0, 0.7 * k, 0.3 * k, 1.1 * k);
+      fx.pCore.add(x, 1.6, z, 0.22, 0.22, 0, 1.2 * k, 0.9 * k, 1.4 * k);
+      fx.rune.add(x, 0.05, z, 1.6, 1.6, t, 0.35 * k, 0.12 * k, 0.6 * k);
+    }
+    if (p && p.char.id === 'irven')
+      for (const e of g.enemies) {
+        if (e.dead || !e.curse) continue;
+        const R = (e.r * 3) / U, ck = 0.12 + 0.06 * e.curse;
+        fx.groundRing.add(e.x / U, 0.06, e.y / U, R, R, t * 2, 0.8 * ck, 0.25 * ck, 1.3 * ck);
+      }
+
+    // ивентовые волны: алтари и пепельное кольцо
+    const ev = g.event;
+    if (ev && ev.altars) {
+      for (const al of ev.altars) {
+        const x = al.x / U, z = al.y / U;
+        const pul = 0.75 + 0.25 * Math.sin(t * 4 + x);
+        const c = al.lit ? [1.6, 1.2, 0.4] : [0.9, 0.25, 0.15];
+        fx.rune.add(x, 0.05, z, 2.6, 2.6, t * (al.lit ? 0.8 : 0.3), c[0] * 0.6 * pul, c[1] * 0.6 * pul, c[2] * 0.6 * pul);
+        if (al.prog > 0 && !al.lit) fx.groundRing.add(x, 0.07, z, 6 * al.prog, 6 * al.prog, -t * 2, 1.4, 1.0, 0.3);
+        this.beam(x, 0, z, x, al.lit ? 9 : 2.5, z, al.lit ? 0.5 : 0.22, c[0] * 0.8, c[1] * 0.8, c[2] * 0.8);
+        fx.ground.add(x, 0.06, z, 3, 3, 0, c[0] * 0.35 * pul, c[1] * 0.35 * pul, c[2] * 0.35 * pul);
+      }
+    }
+    if (ev && ev.type === 'ashring') {
+      const N = 72, R = ev.R / U, cx = ev.cx / U, cz = ev.cy / U;
+      for (let i = 0; i < N; i++) {
+        const a = (i / N) * TAU + t * 0.05;
+        const fl = 0.7 + 0.3 * Math.sin(t * 6 + i * 1.7);
+        fx.ground.add(cx + Math.cos(a) * R, 0.06, cz + Math.sin(a) * R, 1.3, 1.3, 0, 1.4 * fl, 0.35 * fl, 0.08 * fl);
+      }
     }
 
     // метеоры: метка на земле и падающий огненный ком

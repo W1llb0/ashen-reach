@@ -84,6 +84,10 @@ kbd {
   transition: opacity 0.3s ease, visibility 0s linear 0.3s;
   overflow-y: auto;
 }
+/* содержимое центрируется полями: если оно выше экрана, верх не обрезается и прокручивается */
+.screen:not(.screen-lobby) { align-items: flex-start; justify-content: flex-start; }
+.screen:not(.screen-lobby) > * { margin: auto; }
+.btn b.poor { color: #ff7a7a; }
 .screen.visible { opacity: 1; visibility: visible; pointer-events: auto; transition: opacity 0.3s ease; }
 .screen.dim {
   background: radial-gradient(ellipse at center, rgba(20, 12, 6, 0.55), rgba(6, 3, 1, 0.85));
@@ -266,7 +270,7 @@ h2 {
 .select-head { display: flex; align-items: center; gap: 16px; }
 .select-head h2 { margin: 0; flex: 1; text-align: center; }
 .select-head .spacer { width: 110px; }
-.heroes { display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; }
+.heroes { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 12px; }
 .hero {
   position: relative;
   display: flex;
@@ -692,7 +696,7 @@ body.touch #abilityBtn { width: 86px; height: 86px; }
 
 /* ---------- Адаптив ---------- */
 @media (max-width: 900px) {
-  .heroes { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+  .heroes { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
   .hero canvas { width: 72px; height: 72px; }
   .hero-name { font-size: 17px; }
   .hero-title { display: none; }
@@ -1023,7 +1027,7 @@ body.touch #abilityBtn { width: 86px; height: 86px; }
 }
 
 /* ---------- Лавка: кузня оружия и брони, диковины ---------- */
-.wares { grid-template-columns: repeat(3, minmax(0, 360px)); align-items: stretch; }
+.wares { grid-template-columns: repeat(4, minmax(0, 300px)); align-items: stretch; }
 .stall { --r: #c9b48e; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .stall-head { display: flex; gap: 9px; align-items: center; padding: 2px 4px 6px; border-bottom: 1px solid color-mix(in srgb, var(--r) 35%, transparent); }
 .stall-head .ico { color: var(--r); flex: none; filter: drop-shadow(0 0 6px color-mix(in srgb, var(--r) 50%, transparent)); }
@@ -1041,7 +1045,7 @@ body.touch #abilityBtn { width: 86px; height: 86px; }
 .wares .ware-desc { margin: 3px 0 0; font-size: 13px; line-height: 1.3; color: var(--muted); }
 .wares .seal { flex: none; padding: 6px 12px 6px 10px; }
 .wares .seal b { font-size: 16px; }
-@media (max-width: 1100px) { .wares { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 1100px) { .wares { grid-template-columns: repeat(2, minmax(0, 1fr)); max-height: 46vh; overflow-y: auto; } }
 @media (max-width: 900px) {
   .wares { grid-template-columns: 1fr; max-height: 56vh; overflow-y: auto; }
   .counter { padding-bottom: 10px; }
@@ -1072,3 +1076,15 @@ body.touch #abilityBtn { width: 86px; height: 86px; }
   .sstat span { display: none; }
   .sstat b { font-size: 13px; }
 }
+
+/* ---------- Ивенты и итоговый билд ---------- */
+.event-info { margin-top: 4px; padding: 3px 12px; border-radius: 12px; font-size: 13px; font-weight: 700; color: #ffd98a; background: rgba(20, 8, 4, 0.75); border: 1px solid rgba(255, 190, 90, 0.4); }
+.event-info.alarm { color: #fff; background: rgba(160, 20, 20, 0.85); border-color: #ff5a3a; animation: lowhp 0.6s ease-in-out infinite; }
+.build-sum { display: flex; flex-direction: column; gap: 10px; margin: 16px 0 6px; text-align: left; }
+.bsect em { display: block; font-style: normal; font-size: 11px; font-weight: 800; letter-spacing: 0.2em; text-transform: uppercase; color: var(--gold-2); margin-bottom: 5px; }
+.bchips { display: flex; flex-wrap: wrap; gap: 6px; }
+.bchip { --r: var(--gold); display: flex; align-items: center; gap: 7px; padding: 5px 10px; border-radius: 6px; background: rgba(255, 220, 150, 0.04); border: 1px solid color-mix(in srgb, var(--r) 45%, transparent); }
+.bchip .ico { color: var(--r); flex: none; }
+.bchip b { display: block; font-family: var(--display); font-size: 13px; color: var(--gold-hi); line-height: 1.15; }
+.bchip span { display: block; font-size: 11px; color: var(--r); }
+.over-panel { max-height: none; }

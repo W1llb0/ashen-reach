@@ -252,7 +252,7 @@ export const KITS = {
         if (p.spinTick <= 0) {
           p.spinTick = 0.14;
           meleeSwing(g, {
-            a: p.spinA = (p.spinA || 0) + 2.1, arc: Math.PI, r: R, dmg: g.playerDamage() * 0.55, knock: 60, burn: true, fire: true,
+            a: p.spinA = (p.spinA || 0) + 2.1, arc: Math.PI, r: R, dmg: g.playerDamage() * 0.55 * p.abil.power, knock: 60, burn: true, fire: true,
             color: '#ff7a30', cutBullets: true, life: 0.18, kind: 'ring',
             onHit: (e) => {
               if (p.flags.eternal && e.dead) {
@@ -267,7 +267,7 @@ export const KITS = {
     speedMul: (p) => (p.spinT > 0 ? 1.3 : 1) * (p.rageT > 0 && p.flags.berserk ? 1.25 : 1),
     armorAdd: (p) => (p.rageT > 0 && p.flags.berserk ? 0.4 : 0),
     ability(g, p) {
-      p.spinT = 2.2 + (p.flags.bladeStorm ? 1.2 : 0);
+      p.spinT = (2.2 + (p.flags.bladeStorm ? 1.2 : 0)) * p.abil.dur;
       p.spinTick = 0;
       g.particles.ring(p.x, p.y, '#ff7a30', 180, 0.5, 8);
       g.shake(8);
@@ -311,6 +311,7 @@ export const KITS = {
       const traps = p.flags.trapper ? 3 : 1;
       for (let i = 0; i < traps; i++) g.addTrap(p.x - Math.cos(a) * i * 40, p.y - Math.sin(a) * i * 40);
       p.dashT = 0.17;
+      p.invuln = Math.max(p.invuln, 0.4 * p.abil.dur);
       p.dashVx = Math.cos(a) * 1400;
       p.dashVy = Math.sin(a) * 1400;
       p.invuln = Math.max(p.invuln, 0.4);
@@ -426,7 +427,9 @@ export const KITS = {
       if (pr.blast) overloadBlast(g, pr.x, pr.y, p.flags.overload ? 200 : 160, g.playerDamage() * 2.2);
     },
     ability(g, p) {
-      g.timeStopT = 3 + (p.flags.loop ? 1.5 : 0);
+      g.timeStopT = (3 + (p.flags.loop ? 1.5 : 0)) * p.abil.dur;
+      // ударная волна застывшего времени
+      g.forEnemiesNear(p.x, p.y, 420, (e) => g.damageEnemy(e, g.playerDamage() * 1.2 * p.abil.power, false, e.x, e.y, '#d8c0ff'));
       g.timeStopMax = g.timeStopT;
       g.particles.ring(p.x, p.y, '#f0e2ff', 900, 0.9, 8);
       g.particles.ring(p.x, p.y, '#b894ff', 600, 0.7, 4);
@@ -503,7 +506,8 @@ export const KITS = {
       return Math.abs(angleDiff(p.aim, angleTo(p.x, p.y, b.x, b.y))) < arc;
     },
     ability(g, p) {
-      p.aegisT = 2.5 + (p.flags.mirror ? 1 : 0);
+      p.aegisT = (2.5 + (p.flags.mirror ? 1 : 0)) * p.abil.dur;
+      g.explode(p.x, p.y, 190, g.playerDamage() * 1.5 * p.abil.power, '#ffe9a0');
       p.aegisMax = p.aegisT;
       g.particles.ring(p.x, p.y, '#e0b050', 90, 0.4, 6);
       g.shake(5);
@@ -573,14 +577,15 @@ export const KITS = {
       if (Math.random() < chance && g.allies.filter((a) => !a.dead).length < KITS.morra.minionCap(p)) g.raiseAlly(e.x, e.y);
     },
     ability(g, p) {
-      for (let i = 0; i < 3; i++) {
-        const a = (i / 3) * TAU + rand(0.5);
+      const cnt = Math.max(1, Math.round(3 * p.abil.power));
+      for (let i = 0; i < cnt; i++) {
+        const a = (i / cnt) * TAU + rand(0.5);
         g.raiseAlly(p.x + Math.cos(a) * 60, p.y + Math.sin(a) * 60, true);
       }
       for (const a of g.allies) {
         if (a.dead) continue;
         a.hp = a.maxHp;
-        a.enrageT = 4;
+        a.enrageT = 4 * p.abil.dur;
       }
       g.particles.ring(p.x, p.y, '#6fe0a0', 160, 0.6, 8);
       g.flash('#40ff90', 0.12);
@@ -592,6 +597,247 @@ export const KITS = {
     },
   },
 };
+
+// ---- Мортен: Посмертие, страх, казнь ----
+const MORTEN_KITS = {
+  rateMul: () => 1,
+  weapons: {
+    cleaver: {
+      reach: (p) => 135 * p.s.size + 30,
+      attack(g, p) {
+        mortenSwing(g, p, { arc: 1.3, r: 135, knock: 160, heavy: true, kind: 'wide', color: '#c8ffe0' });
+      },
+    },
+    hook: {
+      reach: (p) => 250 * p.s.size + 20,
+      attack(g, p) {
+        mortenSwing(g, p, { arc: 0.22, r: 250, knock: -300, kind: 'narrow', color: '#b8d8d0' });
+      },
+    },
+    tomb: {
+      reach: (p) => 110 * p.s.size + 30,
+      attack(g, p) {
+        mortenSwing(g, p, { arc: 0.9, r: 110, knock: 300, kind: 'narrow', heavy: true, color: '#d8fff0' });
+        if (p.swingN % 4 === 0) {
+          const R = 170 * p.s.size;
+          g.explode(p.x, p.y, R, g.playerDamage() * 1.3, '#9fe0c8');
+          g.particles.ring(p.x, p.y, '#bfffe0', R, 0.4, 6);
+          g.shake(3);
+        }
+      },
+    },
+  },
+  blocks(p, b) {
+    if (!p.weapon.shield) return false;
+    return Math.abs(angleDiff(p.aim, angleTo(p.x, p.y, b.x, b.y))) < 0.95;
+  },
+  update(g, p, dt) {
+    if (p.headT > 0) p.headT -= dt;
+    else p.headStacks = 0;
+    if (p.undeathT > 0) {
+      p.undeathT -= dt;
+      p.hp = 1;
+      p.invuln = Math.max(p.invuln, 0.1);
+      if (Math.random() < 0.5) g.particles.flame(p.x + rand(-12, 12), p.y + rand(-12, 12), '#7dffb0', 1);
+      if (p.undeathT <= 0) {
+        const need = p.s.maxHp * (p.flags.easyRise ? 0.1 : 0.2);
+        if (p.undeathPool >= need) {
+          p.hp = Math.min(p.s.maxHp, Math.max(p.undeathPool, p.flags.easyRise ? p.s.maxHp * 0.4 : 0));
+          p.invuln = 1.5;
+          g.toast('Мортен восстаёт!', '#8fd8b8');
+          g.particles.ring(p.x, p.y, '#8fd8b8', 260, 0.7, 10);
+          if (p.flags.riseBlast) g.explode(p.x, p.y, 230, g.playerDamage() * 4, '#8fd8b8');
+          audio.play('revive');
+        } else {
+          p.hp = 0;
+          g.die();
+        }
+      }
+    }
+    p.tempDmg = (p.undeathT > 0 ? 1.5 : 1) * (1 + 0.03 * (p.headStacks || 0));
+    // Жатва цепей: каждые 5 атак крюки по толпе
+    if (p.flags.reaperChains && p.swingN >= (p.chainAt || 5)) {
+      p.chainAt = p.swingN + 5;
+      const near = [];
+      g.forEnemiesNear(p.x, p.y, 320, (e) => {
+        near.push(e);
+      });
+      for (const e of near.slice(0, 4)) {
+        g.addBolt(p.x, p.y, 1, e.x, e.y, 1, '#b8d8d0', 0.7);
+        g.damageEnemy(e, g.playerDamage() * 1.5, false, e.x, e.y);
+        if (!e.boss) {
+          const a = angleTo(e.x, e.y, p.x, p.y);
+          e.kbx += Math.cos(a) * 500;
+          e.kby += Math.sin(a) * 500;
+        }
+      }
+    }
+  },
+  onAnyHit(g, p, e) {
+    if (p.flags.grip && !e.boss) {
+      const a = angleTo(e.x, e.y, p.x, p.y);
+      e.kbx += Math.cos(a) * 110;
+      e.kby += Math.sin(a) * 110;
+    }
+    if (p.flags.shackle) e.slowT = Math.max(e.slowT, 1.5);
+    if (p.flags.mortExec && !e.boss && !e.dead && e.hp < e.maxHp * 0.15) g.damageEnemy(e, e.hp + 1, true, e.x, e.y, '#c8ffe0');
+  },
+  onKill(g, p, e) {
+    if (p.weapon.id === 'cleaver' || p.flags.reap) p.hp = Math.min(p.s.maxHp, p.hp + p.s.maxHp * (0.006 + (p.flags.reap ? 0.006 : 0)));
+    if (p.undeathT > 0) p.undeathPool = (p.undeathPool || 0) + p.s.maxHp * 0.04;
+    if (p.flags.headsman) {
+      p.headStacks = Math.min(10, (p.headStacks || 0) + 1);
+      p.headT = 6;
+    }
+  },
+  // вместо смерти — Посмертие
+  onDeath(g, p) {
+    if ((p.undeathUsed || 0) >= (p.flags.riseBlast ? 2 : 1)) return false;
+    p.undeathUsed = (p.undeathUsed || 0) + 1;
+    p.undeathT = p.undeathMax = 5 * (p.flags.longUndeath ? 1.6 : 1);
+    p.undeathPool = 0;
+    p.hp = 1;
+    p.invuln = p.undeathT;
+    g.toast('Посмертие! Убивай, чтобы восстать', '#8fd8b8');
+    g.flash('#40ff90', 0.3);
+    g.particles.ring(p.x, p.y, '#7dffb0', 200, 0.6, 8);
+    audio.play('summon');
+    return true;
+  },
+  ability(g, p) {
+    const R = 320 * p.s.size;
+    g.forEnemiesNear(p.x, p.y, R, (e) => {
+      g.damageEnemy(e, g.playerDamage() * 1.5 * p.abil.power, false, e.x, e.y, '#c8ffe0');
+      e.markT = 4;
+      if (!e.boss) e.fearT = 2.5 * p.abil.dur;
+    });
+    g.particles.ring(p.x, p.y, '#8fd8b8', R, 0.6, 10);
+    g.particles.ring(p.x, p.y, '#e0fff2', R * 0.6, 0.5, 5);
+    g.shake(6);
+    audio.play('boss');
+  },
+  resource(p) {
+    if (p.undeathT > 0) return { label: 'Посмертие', v: p.undeathT / p.undeathMax, color: '#7dffb0', active: true };
+    const left = (p.flags.riseBlast ? 2 : 1) - (p.undeathUsed || 0);
+    return left > 0 ? { label: 'Посмертие готово', v: 1, color: '#5a9a80' } : { label: 'Посмертие исчерпано', v: 0, color: '#5a9a80' };
+  },
+};
+function mortenSwing(g, p, o) {
+  p.swingN = (p.swingN || 0) + 1;
+  meleeSwing(g, { a: p.aim, arc: o.arc, r: o.r * p.s.size, dmg: g.playerDamage(), knock: o.knock, heavy: o.heavy, color: o.color, cutBullets: true, kind: o.kind, side: p.swingN % 2 ? 1 : -1 });
+}
+
+// ---- Ирвен: порча, тотемы, рой ----
+const curseMax = (p) => (p.flags.deepCurse ? 8 : 5);
+const IRVEN_KIT = {
+  rateMul: () => 1,
+  weapons: {
+    totems: {
+      reach: (p) => 420 * p.s.range,
+      attack(g, p) {
+        const t = p.aimTarget;
+        const x = t ? t.x + rand(-40, 40) : p.x + Math.cos(p.aim) * 200, y = t ? t.y + rand(-40, 40) : p.y + Math.sin(p.aim) * 200;
+        const cap = 3 + 2 * (p.upg.irven_more || 0);
+        while (g.totems.length >= cap) g.totems.shift();
+        g.totems.push({ x, y, life: p.flags.totemLife ? 10 : 6, fireT: 0.3 });
+        g.particles.ring(x, y, '#c58aff', 50, 0.35, 4);
+        audio.play('raise');
+      },
+    },
+    hex: {
+      reach: (p) => 460 * p.s.range,
+      attack(g, p) {
+        const n = 1 + p.s.extraProj;
+        for (let i = 0; i < n; i++)
+          g.addProj({ kind: 'soul', x: p.x, y: p.y, angle: p.aim + (i - (n - 1) / 2) * 0.25, speed: 520 * p.s.projSpeed, r: 6 * p.s.size, dmg: g.playerDamage(), homing: 6, life: (460 * p.s.range) / 520, color: '#c58aff', pierce: p.s.pierce, bounce: p.s.bounce, curse: 2 });
+        audio.play('soul');
+      },
+    },
+    swarm: {
+      reach: (p) => 400 * p.s.range,
+      attack(g, p) {
+        const n = 2 + (p.upg.irven_bats || 0);
+        for (let i = 0; i < n; i++)
+          g.addProj({ kind: 'wisp', x: p.x, y: p.y, angle: p.aim + rand(-1.4, 1.4), speed: 380 * p.s.projSpeed, r: 7 * p.s.size, dmg: g.playerDamage(), homing: 7, life: 2.6, color: '#b070ff', pierce: 1 + (p.flags.plagueSwarm ? 2 : 0), curse: p.flags.plagueSwarm ? 3 : 1, bat: true });
+        audio.play('summon');
+      },
+    },
+  },
+  update(g, p, dt) {
+    if (g.totemOverT > 0) g.totemOverT -= dt;
+    for (const t of g.totems) {
+      t.life -= dt;
+      if (t.life <= 0) {
+        t.dead = true;
+        if (p.flags.totemBlast) g.explode(t.x, t.y, 160, g.playerDamage() * 3, '#c58aff');
+        continue;
+      }
+      t.fireT -= dt * (g.totemOverT > 0 ? 2 : 1);
+      if (t.fireT > 0) continue;
+      t.fireT = 0.6 * (p.flags.totemLife ? 0.75 : 1);
+      const e = g.nearestEnemy(t.x, t.y, 380);
+      if (!e) continue;
+      g.addProj({ kind: 'orb', x: t.x, y: t.y, angle: angleTo(t.x, t.y, e.x, e.y), speed: 620, r: 6, dmg: g.playerDamage() * 1.15, life: 0.75, color: '#d8b0ff', curse: 1 });
+    }
+    // порча: гниение раз в полсекунды
+    p.curseTick = (p.curseTick || 0) - dt;
+    if (p.curseTick <= 0) {
+      p.curseTick = 0.5;
+      const k = g.playerDamage() * 0.16 * (p.flags.deepCurse ? 1.5 : 1);
+      for (const e of g.enemies) {
+        if (e.dead || !e.curse) continue;
+        e.curseT -= 0.5;
+        if (e.curseT <= 0) {
+          e.curse = 0;
+          continue;
+        }
+        g.damageEnemy(e, k * e.curse, false, e.x, e.y, '#d8a0ff');
+      }
+    }
+  },
+  onAnyHit(g, p, e, pr) {
+    const add = pr ? pr.curse || 0 : 1;
+    if (add) {
+      e.curse = Math.min(curseMax(p), (e.curse || 0) + add);
+      e.curseT = 4;
+    }
+    if (pr && pr.bat && p.flags.leech) p.hp = Math.min(p.s.maxHp, p.hp + 1);
+  },
+  onKill(g, p, e) {
+    if (!e.curse) return;
+    const targets = p.flags.spreadCurse ? 2 : 1;
+    const near = [];
+    g.forEnemiesNear(e.x, e.y, 220, (o) => {
+      if (o !== e) near.push(o);
+    });
+    near.sort((a, b) => dist2(e.x, e.y, a.x, a.y) - dist2(e.x, e.y, b.x, b.y));
+    for (const o of near.slice(0, targets)) {
+      o.curse = Math.min(curseMax(p), (o.curse || 0) + (p.flags.spreadCurse ? e.curse : Math.ceil(e.curse / 2)));
+      o.curseT = 4;
+      g.addBolt(e.x, e.y, 0.8, o.x, o.y, 0.8, '#c58aff', 0.5);
+    }
+  },
+  ability(g, p) {
+    let n = 0;
+    for (const e of g.enemies) {
+      if (e.dead || !e.curse || !g.onScreen(e.x, e.y)) continue;
+      const stacks = e.curse;
+      e.curse = 0;
+      g.explode(e.x, e.y, 70 * p.s.size, g.playerDamage() * 0.8 * stacks * p.abil.power, '#c58aff');
+      n++;
+    }
+    g.totemOverT = 4 * p.abil.dur;
+    g.particles.ring(p.x, p.y, '#c58aff', 300, 0.6, 8);
+    g.flash('#a050ff', 0.15);
+    if (!n) audio.play('summon');
+  },
+  resource(p, g) {
+    const n = g.enemies.filter((e) => !e.dead && e.curse > 0).length;
+    return { label: `Проклятых: ${n}`, v: Math.min(1, n / 10), color: '#c58aff', active: n >= 10 };
+  },
+};
+KITS.morten = MORTEN_KITS;
+KITS.irven = IRVEN_KIT;
 
 // Атака и дальность берутся у выбранного оружия
 for (const kit of Object.values(KITS)) {

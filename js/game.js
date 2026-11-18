@@ -9,6 +9,7 @@ import { rollShop, itemPrice, rerollPrice } from './shop.js';
 import { newForge, rollForge, forgePrice, forgeStep, MAX_FORGE } from './forge.js';
 import { rollChoices, applyChoice } from './upgrades.js';
 import { KITS, kitOf, castLightning } from './heroes.js';
+import { rollEvent, updateEvent, endEvent } from './events.js';
 
 export const ARENA = 3200;
 const CELL = 64;
@@ -26,7 +27,7 @@ const GEM_TIERS = [
 
 // каждый уровень требует заметно больше опыта, чем предыдущий
 // доля опыта и золота с кристаллов: уровни и покупки не должны опережать рост врагов
-const XP_RATE = 0.36;
+const XP_RATE = 0.45;
 const GOLD_RATE = 0.95;
 export const xpFor = (l) => Math.floor(9 + (l - 1) * 7 + Math.pow(l - 1, 1.95) * 0.8);
 
@@ -56,6 +57,7 @@ export class Game {
     this.pillars = [];
     this.clouds = [];
     this.meteors = [];
+    this.totems = [];
     this.wells = [];
     this.blasts = [];
     this.cloudFlash = 0;
@@ -95,9 +97,11 @@ export class Game {
   start(charId, weaponId) {
     const ch = charById(charId);
     this.weaponId = weaponId;
+    this.endless = false;
+    this.event = null;
     this.enemies.length = this.bullets.length = this.projs.length = 0;
     this.gems.length = this.pickups.length = this.hazards.length = this.bolts.length = 0;
-    this.slashes.length = this.traps.length = this.allies.length = this.skyArrows.length = this.pillars.length = this.clouds.length = this.meteors.length = this.wells.length = this.blasts.length = 0;
+    this.slashes.length = this.traps.length = this.allies.length = this.skyArrows.length = this.pillars.length = this.clouds.length = this.meteors.length = this.totems.length = this.wells.length = this.blasts.length = 0;
     this.particles.clear();
     this.time = 0;
     this.timeScale = 1;
@@ -130,36 +134,53 @@ export class Game {
   }
 
   // ---------- Волны ----------
+  // бесконечный поход: после 20-й волны босс каждые 5 волн
+  isBoss(n) {
+    return n > TOTAL_WAVES ? n % 5 === 0 : isBossWave(n);
+  }
+
   startWave(n) {
     this.wave = n;
     this.waveT = 0;
     this.wavePhase = 'fight';
-    this.waveDur = isBossWave(n) ? Infinity : waveDuration(n);
+    this.waveDur = this.isBoss(n) ? Infinity : waveDuration(n);
     this.spawnT = 0.6;
     this.waveChests = 0;
     this.endWaveT = 0;
-    this.bossPending = isBossWave(n) ? 2 : 0;
-    this.swarmAt = !isBossWave(n) && n >= 3 && n % 3 === 0 ? this.waveDur * 0.5 : -1;
+    this.bossPending = this.isBoss(n) ? 2 : 0;
+    this.event = this.isBoss(n) ? null : rollEvent(this, n);
+    this.swarmAt = !this.isBoss(n) && !this.event && n >= 3 && n % 3 === 0 ? this.waveDur * 0.5 : -1;
     const p = this.player;
     // между волнами раны заживают лишь частично — урон копится
     p.hp = n === 1 ? p.s.maxHp : Math.min(p.s.maxHp, p.hp + p.s.maxHp * 0.5);
     p.invuln = 1.5;
     p.abilityCd = 0;
+    p.undeathUsed = 0;
     this.bullets.length = 0;
     this.zones.length = 0;
     this.state = 'playing';
-    audio.intensity = isBossWave(n) ? 2 : 1;
+    audio.intensity = this.isBoss(n) ? 2 : 1;
     const fresh = newEnemyAt(n).map((t) => ENEMY_TYPES[t].name);
     let sub = fresh.length ? 'Новый враг: ' + fresh.join(', ') : 'Продержись ' + this.waveDur + ' сек.';
     if (n === TOTAL_WAVES) sub = 'Финальная битва';
     else if (BOSS_WAVES[n]) sub = 'Мини-босс: ' + BOSSES[BOSS_WAVES[n]].name;
-    this.ui.waveBanner(n, TOTAL_WAVES, sub, isBossWave(n));
+    else if (n > TOTAL_WAVES && this.isBoss(n)) sub = 'Страж бесконечности';
+    if (this.event) sub = `${this.event.def.name}: ${this.event.def.goal}`;
+    this.ui.waveBanner(n, this.endless ? '∞' : TOTAL_WAVES, sub, this.isBoss(n), this.event);
   }
 
   waveScale() {
     // враги крепнут с каждой волной: здоровье растёт быстрее урона, чтобы бой не превращался в ваншоты
-    const w = this.wave - 1;
-    return { hp: 1 + w * 0.35 + w * w * 0.065, dmg: 1 + w * 0.13 + w * w * 0.003, spd: 1 + w * 0.017 };
+    const w = Math.min(this.wave, TOTAL_WAVES) - 1;
+    const sc = { hp: 1 + w * 0.35 + w * w * 0.065, dmg: 1 + w * 0.13 + w * w * 0.003, spd: 1 + w * 0.017 };
+    // бесконечный поход: каждая волна сверх 20-й резко сильнее
+    const ex = Math.max(0, this.wave - TOTAL_WAVES);
+    if (ex) {
+      sc.hp *= Math.pow(1.24, ex);
+      sc.dmg *= Math.pow(1.13, ex);
+      sc.spd *= Math.min(1.35, 1 + ex * 0.02);
+    }
+    return sc;
   }
 
   endWave() {
@@ -175,17 +196,19 @@ export class Game {
     this.ui.hideBoss();
     for (const b of this.bullets) b.dead = true;
     this.zones.length = 0;
-    for (const g of this.gems) g.mag = true;
+    const left = this.gems.reduce((a, g) => a + g.v, 0);
+    endEvent(this);
+    if (left > 0 && (this.wave < TOTAL_WAVES || this.endless)) this.toast(`Несобранный опыт останется на поле: ${Math.round(left)}`, '#8fd8ff');
     for (const k of this.pickups) {
       if (k.type === 'chest') this.pendingChests++;
       k.dead = true;
     }
-    if (this.wave < TOTAL_WAVES) this.toast(`Волна ${this.wave} выстояна`, '#ffd870');
+    if (this.wave < TOTAL_WAVES || this.endless) this.toast(`Волна ${this.wave} выстояна`, '#ffd870');
     audio.play('chest');
   }
 
   nextReward() {
-    if (this.wave >= TOTAL_WAVES) return this.victory();
+    if (this.wave === TOTAL_WAVES && !this.endless) return this.victory();
     if (this.pendingChests > 0) {
       this.pendingChests--;
       this.openChoice(true);
@@ -206,7 +229,7 @@ export class Game {
     const p = this.player;
     const out = [];
     let relics = 2;
-    for (const slot of ['weapon', 'armor']) {
+    for (const slot of ['weapon', 'armor', 'ability']) {
       const fams = rollForge(p, slot, 2);
       relics += 2 - fams.length;
       for (const fam of fams) out.push({ kind: 'forge', slot, fam, sold: false });
@@ -272,6 +295,17 @@ export class Game {
     this.startWave(this.wave + 1);
   }
 
+  // Продолжить после победы: бесконечный поход
+  continueEndless() {
+    this.endless = true;
+    this.ui.hideAll && this.ui.hideAll();
+    this.ui.hud.classList.remove('hidden');
+    this.state = 'playing';
+    this.wavePhase = 'rewards';
+    this.toast('Бесконечный поход начинается', '#ff7a5a');
+    this.nextReward();
+  }
+
   victory() {
     this.state = 'victory';
     audio.intensity = 0;
@@ -286,7 +320,9 @@ export class Game {
     const id = p.char.id;
     const prev = this.records[id] || { wave: 0, level: 0, kills: 0, score: 0, wins: 0, runs: 0 };
     const isRecord = score > (prev.score || 0);
+    const endlessBest = Math.max(prev.endless || 0, this.endless ? this.wave : 0);
     this.records[id] = {
+      endless: endlessBest,
       wave: Math.max(prev.wave || 0, this.wave), level: Math.max(prev.level || 0, p.level), kills: Math.max(prev.kills || 0, this.stats.kills),
       score: Math.max(prev.score || 0, score), wins: (prev.wins || 0) + (won ? 1 : 0), runs: (prev.runs || 0) + 1, time: Math.max(prev.time || 0, this.time),
     };
@@ -307,7 +343,7 @@ export class Game {
       s.critMult = 2.5;
     }
     return {
-      char: ch, weapon, tags: weapon.tags, forge: newForge(), mods: { rate: 1, dmg: 1 }, atkScale: 1, stepT: 1, wellT: 4, weaponMult: 1, duskT: 0, wrathT: 2.5, atkN: 0, echoT: 0, s, x: ARENA / 2, y: ARENA / 2, vx: 0, vy: 0, aim: 0, hp: ch.hp, r: 15, hitR: 5,
+      char: ch, weapon, tags: weapon.tags, forge: newForge(), abil: { power: 1, dur: 1 }, abilStock: 0, abilEchoT: 0, mods: { rate: 1, dmg: 1 }, atkScale: 1, stepT: 1, wellT: 4, weaponMult: 1, duskT: 0, wrathT: 2.5, atkN: 0, echoT: 0, s, x: ARENA / 2, y: ARENA / 2, vx: 0, vy: 0, aim: 0, hp: ch.hp, r: 15, hitR: 5,
       level: 1, xp: 0, xpNext: xpFor(1), invuln: 1, fireT: 0.3, abilityCd: 0, abilityMax: ch.ability.cd,
       dashT: 0, dashVx: 0, dashVy: 0, dashHit: null, aegisT: 0, aegisMax: 1, shield: 0, shieldT: 0,
       flags: {}, upg: {}, upgList: [], items: [], itemCount: {}, branch: {}, rage: 0, rageT: 0, spinT: 0, orbitA: 0, lastShot: -9, abilityAnimT: 0, droneT: [0, 0, 0], volleyT: 0, trailT: 0, rerolls: 2, hurtT: 0,
@@ -316,7 +352,7 @@ export class Game {
 
   playerDamage() {
     const p = this.player;
-    return p.weapon.damage * p.s.dmgMult * p.weaponMult * p.mods.dmg * p.atkScale * (p.duskT > 0 ? 1.3 : 1);
+    return p.weapon.damage * p.s.dmgMult * p.weaponMult * p.mods.dmg * p.atkScale * (p.duskT > 0 ? 1.3 : 1) * (p.tempDmg || 1);
   }
 
   toast(text, color = '#fff') {
@@ -437,6 +473,7 @@ export class Game {
 
     this.updatePlayer(dt);
     this.updateSpawner(dt);
+      if (this.event && this.wavePhase === 'fight') updateEvent(this, dt);
     this.buildGrid();
     this.updateEnemies(dt, edt);
     this.separate();
@@ -466,6 +503,7 @@ export class Game {
     compact(this.pillars);
     compact(this.clouds);
     compact(this.meteors);
+    compact(this.totems);
     compact(this.wells);
     compact(this.blasts);
 
@@ -481,12 +519,9 @@ export class Game {
 
     if (this.wavePhase === 'clearing' && this.state === 'playing') {
       this.clearT -= rawDt;
-      if (this.clearT <= 0 && (this.gems.length === 0 || this.clearT < -2)) {
-        for (const g of this.gems) {
-          this.gainXp(g.v);
-          this.addGold(g.v * GOLD_RATE);
-        }
-        this.gems.length = 0;
+      // несобранные кристаллы остаются лежать до следующей волны
+      if (this.clearT <= 0) {
+        for (const g of this.gems) g.mag = false;
         this.wavePhase = 'rewards';
         this.nextReward();
       }
@@ -513,7 +548,7 @@ export class Game {
       p.dashT -= dt;
       p.x += p.dashVx * dt;
       p.y += p.dashVy * dt;
-      const dmg = this.playerDamage() * 4 * (p.flags.blade ? 2 : 1);
+      const dmg = this.playerDamage() * 4 * (p.flags.blade ? 2 : 1) * p.abil.power;
       this.forEnemiesNear(p.x, p.y, 46, (e) => {
         if (p.dashHit.has(e)) return;
         p.dashHit.add(e);
@@ -579,12 +614,33 @@ export class Game {
     if (p.abilityCd > 0) p.abilityCd -= dt;
     const useAbility = input.pressed('Space', 'Mouse2', 'KeyE') || input.abilityTouch;
     input.abilityTouch = false;
-    if (useAbility && p.abilityCd <= 0) {
+    // «Двойной заряд»: пока перезаряжается, способность копит запасной заряд
+    if (p.flags.twoCharges && p.abilityCd <= 0 && p.abilStock < 1 && p.abilityMax > 0) {
+      p.abilStock = 1;
+      p.abilityCd = p.abilityMax;
+    }
+    if (useAbility && (p.abilityCd <= 0 || p.abilStock > 0)) {
+      const fromStock = p.abilityCd > 0;
+      if (fromStock) p.abilStock--;
       kit.ability(this, p);
       p.abilityAnimT = 0.7;
-      let cd = ch.ability.cd * s.cdMult - (ch.id === 'vega' && p.flags.blade ? 0.8 : 0);
-      cd = Math.max(0.8, cd);
-      p.abilityCd = p.abilityMax = cd;
+      if (p.flags.abilityEcho) p.abilEchoT = 2;
+      if (p.flags.willpower) {
+        p.hp = Math.min(s.maxHp, p.hp + s.maxHp * 0.15);
+        p.invuln = Math.max(p.invuln, 1.5);
+        this.particles.ring(p.x, p.y, '#7dff9a', 80, 0.4, 5);
+      }
+      if (!fromStock) {
+        let cd = ch.ability.cd * s.cdMult - (ch.id === 'vega' && p.flags.blade ? 0.8 : 0);
+        cd = Math.max(0.8, cd);
+        p.abilityCd = p.abilityMax = cd;
+      }
+    }
+    if (p.abilEchoT > 0 && (p.abilEchoT -= dt) <= 0) {
+      const pw = p.abil.power;
+      p.abil.power = pw * 0.5;
+      kit.ability(this, p);
+      p.abil.power = pw;
     }
 
     if (p.invuln > 0) p.invuln -= dt;
@@ -674,8 +730,10 @@ export class Game {
   }
 
   // общие эффекты попадания от кузни: поджог и «Жажда»
-  onHitProc(e, dmg, crit) {
+  onHitProc(e, dmg, crit, pr = null) {
     const p = this.player, s = p.s;
+    const kh = kitOf(p);
+    if (kh.onAnyHit) kh.onAnyHit(this, p, e, pr);
     if (s.ignite > 0 && Math.random() < s.ignite) {
       e.burnT = 2.5;
       e.burnDps = Math.max(e.burnDps, dmg * 0.25 * s.burnMult);
@@ -695,7 +753,7 @@ export class Game {
       bounce: o.bounce || 0, explosive: o.explosive || 0, decel: o.decel || 0, knock: o.knock ?? 50,
       echo: !!o.echo, hit: null, tgt: null, tgtT: 0, dead: false,
       mark: !!o.mark, heavy: !!o.heavy, heal: !!o.heal, split: !!o.split,
-      noHit: !!o.noHit, ret: o.ret || 0, zap: o.zap || null, blast: !!o.blast, rage: !!o.rage, sx: o.x, sy: o.y,
+      noHit: !!o.noHit, curse: o.curse || 0, bat: !!o.bat, ret: o.ret || 0, zap: o.zap || null, blast: !!o.blast, rage: !!o.rage, sx: o.x, sy: o.y,
     };
     this.projs.push(pr);
     return pr;
@@ -815,7 +873,8 @@ export class Game {
       this.toast('Нежить смыкает кольцо!', '#ff7a4a');
     }
     let rate = 1.2 + w * 0.4;
-    if (isBossWave(w)) rate *= 0.28;
+    if (this.isBoss(w)) rate *= 0.28;
+    if (this.event && this.event.def.spawnK) rate *= this.event.def.spawnK;
     const cap = Math.min(MAX_ENEMIES, 50 + w * 8);
     if (this.enemies.length >= cap) return;
     this.spawnT -= dt;
@@ -833,8 +892,13 @@ export class Game {
 
   spawnBoss() {
     const p = this.player;
-    const id = this.wave === TOTAL_WAVES ? this.finalBossId : BOSS_WAVES[this.wave];
+    const id = this.wave === TOTAL_WAVES ? this.finalBossId : this.wave > TOTAL_WAVES ? pick(['warlord', 'frostgiant', ...FINAL_BOSSES]) : BOSS_WAVES[this.wave];
     const b = createBoss(id, this.wave);
+    if (this.wave > TOTAL_WAVES) {
+      const ex = this.wave - TOTAL_WAVES;
+      b.hp = b.maxHp = b.maxHp * Math.pow(1.2, ex);
+      b.dmg *= Math.pow(1.1, ex);
+    }
     const a = rand(TAU);
     b.x = clamp(p.x + Math.cos(a) * 460, 100, ARENA - 100);
     b.y = clamp(p.y + Math.sin(a) * 460, 100, ARENA - 100);
@@ -853,6 +917,13 @@ export class Game {
     for (const e of this.enemies) {
       if (e.dead) continue;
       updateEnemy(e, this, edt);
+      // страх (Стон могилы): враг бежит прочь от героя
+      if (e.fearT > 0) {
+        e.fearT -= dt;
+        const a = angleTo(p.x, p.y, e.x, e.y);
+        e.vx = Math.cos(a) * e.speed * 1.1;
+        e.vy = Math.sin(a) * e.speed * 1.1;
+      }
       e.x += (e.vx + e.kbx) * edt;
       e.y += (e.vy + e.kby) * edt;
       const kd = Math.exp(-9 * dt);
@@ -912,6 +983,7 @@ export class Game {
     if (pl && pl.flags.loop && this.timeStopT > 0) dmg *= 1.5;
     if (pl && pl.flags.permafrost && e.slowT > 0) dmg *= 1.3;
     if (pl && pl.flags.crush && (e.elite || e.boss)) dmg *= 1.35;
+    if (pl && pl.flags.doom && e.curse > 0) dmg *= 1.4;
     e.hp -= dmg;
     e.flash = 0.07;
     this.stats.damage += dmg;
@@ -950,7 +1022,7 @@ export class Game {
       if (t) this.addProj({ kind: 'soul', x: e.x, y: e.y, angle: angleTo(e.x, e.y, t.x, t.y), speed: 420, r: pr.r * 0.8, dmg: pr.dmg * 0.7, homing: 6, life: 0.9, color: pr.color });
     }
     this.damageEnemy(e, dmg, crit, pr.x, pr.y);
-    this.onHitProc(e, dmg, crit);
+    this.onHitProc(e, dmg, crit, pr);
     const kit = kitOf(p);
     if (kit.onProjHit) kit.onProjHit(this, p, e, pr);
     if (s.chain > 0 && Math.random() < s.chain) this.chainLightning(e, dmg * 0.6);
@@ -1028,7 +1100,7 @@ export class Game {
     }
     if (!e.boss) {
       if (Math.random() < 0.004) this.pickups.push({ type: 'heart', x: e.x, y: e.y, t: 0, dead: false });
-      else if (Math.random() < 0.0025) this.pickups.push({ type: 'magnet', x: e.x, y: e.y, t: 0, dead: false });
+      else if (Math.random() < 0.005) this.pickups.push({ type: 'magnet', x: e.x, y: e.y, t: 0, dead: false });
     }
     if (e.boss) this.bossDefeated(e);
   }
@@ -1036,7 +1108,7 @@ export class Game {
   bossDefeated(b) {
     this.boss = null;
     this.stats.bosses++;
-    this.player.rerolls += 1;
+    this.addGold(15 + this.wave);
     this.addGold(40 + this.wave * 4);
     this.endWaveT = 1.8;
     // все вражеские пули превращаются в искры
@@ -1369,7 +1441,7 @@ export class Game {
       this.forEnemiesNear(w.x, w.y, w.R, (e) => {
         if (e.boss) return;
         const d = Math.sqrt(dist2(w.x, w.y, e.x, e.y)) || 1;
-        const f = 1300 * dt * (0.4 + (1 - d / w.R)) * (e.elite ? 0.4 : 1);
+        const f = 2800 * dt * (0.6 + (1 - d / w.R)) * (e.elite ? 0.55 : 1);
         e.kbx += ((w.x - e.x) / d) * f;
         e.kby += ((w.y - e.y) / d) * f;
       });
@@ -1622,7 +1694,8 @@ export class Game {
         continue;
       }
       // щит Готфрида отбивает пули спереди
-      if (p.char.id === 'bastion' && d2 < 38 * 38 && KITS.bastion.blocks(p, b)) {
+      const kb = kitOf(p).blocks;
+      if (kb && d2 < 38 * 38 && kb(p, b)) {
         b.dead = true;
         // шипастый щит отбивает снаряд обратно
         if (p.weapon.reflect) this.addProj({ kind: 'orb', x: b.x, y: b.y, angle: Math.atan2(-b.vy, -b.vx), speed: 720, r: 7, dmg: this.playerDamage() * 1.2, pierce: 1, life: 0.8, color: '#ffe9a0', knock: 80 });
@@ -1672,7 +1745,7 @@ export class Game {
     if (p.invuln > 0 || p.aegisT > 0 || p.dashT > 0 || this.dying > 0) return;
     // уклонение (броня Тени)
     if (s.dodge > 0 && Math.random() < s.dodge) {
-      p.invuln = 0.45;
+      p.invuln = 0.6;
       this.particles.text(p.x, p.y - 26, 'уклон', '#c8b8ff', 14, false);
       this.particles.ring(p.x, p.y, '#a890ff', 40, 0.25, 3);
       if (p.flags.dusk) p.duskT = 2;
@@ -1722,6 +1795,7 @@ export class Game {
       }
     }
     if (p.hp <= 0) {
+      if (kitA.onDeath && kitA.onDeath(this, p)) return;
       if (s.revive > 0) {
         s.revive--;
         p.hp = s.maxHp * 0.6;
@@ -1780,7 +1854,7 @@ export class Game {
 
   updateGems(dt) {
     const p = this.player;
-    const mr = 110 * p.s.magnet;
+    const mr = 150 * p.s.magnet;
     const mr2 = mr * mr;
     for (const g of this.gems) {
       g.t += dt;
@@ -1856,6 +1930,7 @@ export class Game {
   openChoice(isChest) {
     const p = this.player;
     this.state = 'levelup';
+    this.choiceRerolls = 0;
     const choices = rollChoices(p, 3, isChest ? 1 : 0);
     if (!isChest) audio.play('levelup');
     this.flash(isChest ? '#ffd23d' : '#8cf0ff', 0.25);
@@ -1877,12 +1952,18 @@ export class Game {
     }
   }
 
+  // Переброс даров стоит золота и дорожает, если перебрасывать подряд
+  choiceRerollPrice() {
+    return Math.round((5 + this.wave * 1.5) * (1 + this.choiceRerolls * 0.8));
+  }
+
   reroll(isChest) {
-    const p = this.player;
-    if (p.rerolls <= 0) return null;
-    p.rerolls--;
+    const price = this.choiceRerollPrice();
+    if (this.gold < price) return null;
+    this.gold -= price;
+    this.choiceRerolls++;
     audio.play('ui');
-    return rollChoices(p, 3, isChest ? 1 : 0);
+    return rollChoices(this.player, 3, isChest ? 1 : 0);
   }
 
   // ---------- Рендер ----------

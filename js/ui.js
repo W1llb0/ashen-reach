@@ -416,7 +416,14 @@ export class UI {
       $('#timer').textContent = v;
       $('#timer').classList.toggle('urgent', /^\d+$/.test(v) && +v <= 5);
     });
-    this.set('wave', g.wave, (v) => ($('#waveLabel').textContent = `Волна ${v} / 20`));
+    this.set('wave', g.wave + (g.endless ? 'e' : ''), () => ($('#waveLabel').textContent = g.endless ? `Волна ${g.wave} · бесконечность` : `Волна ${g.wave} / 20`));
+    const evs = g.event ? g.event.status : '';
+    this.set('event', evs + (g.event && g.event.out ? '!' : ''), () => {
+      const ei = $('#eventInfo');
+      ei.textContent = evs;
+      ei.classList.toggle('hidden', !evs);
+      ei.classList.toggle('alarm', !!(g.event && g.event.out));
+    });
     this.set('gold', g.gold, (v) => ($('#gold').textContent = formatNum(v)));
     this.set('pend', g.pendingLevels + g.pendingChests, (v) => {
       const b = $('#lvlBadge');
@@ -432,7 +439,6 @@ export class UI {
       $('#ability').classList.toggle('ready', v === 0);
     });
     this.set('cdText', p.abilityCd > 0 ? Math.ceil(p.abilityCd) : '', (v) => ($('#abilityCd').textContent = v));
-    this.set('rerolls', p.rerolls, () => {});
     const res = KITS[p.char.id].resource(p, g);
     this.set('res', Math.round(res.v * 60) + res.label + (res.active ? 1 : 0), () => {
       $('#resFill').style.width = Math.max(0, Math.min(1, res.v)) * 100 + '%';
@@ -480,9 +486,9 @@ export class UI {
     void warn.offsetWidth;
     warn.classList.add('show');
   }
-  waveBanner(n, total, sub, boss) {
+  waveBanner(n, total, sub, boss, event) {
     const warn = $('#bossWarn');
-    warn.innerHTML = `<div class="warn-line">${boss ? (n === total ? 'Последняя волна' : 'Испытание') : 'Новая волна'}</div><div class="warn-name">Волна ${n}</div><div class="warn-sub">${sub}</div>`;
+    warn.innerHTML = `<div class="warn-line">${event ? 'Особая волна' : boss ? (n === total ? 'Последняя волна' : 'Испытание') : 'Новая волна'}</div><div class="warn-name">Волна ${n}</div><div class="warn-sub">${sub}</div>`;
     warn.style.setProperty('--c', boss ? '#ff5a3a' : '#e8c060');
     warn.classList.remove('show');
     void warn.offsetWidth;
@@ -513,7 +519,7 @@ export class UI {
         </div>
         <div class="cards"></div>
         <div class="lu-foot">
-          <button class="btn btn-ghost btn-sm" data-act="reroll" ${p.rerolls <= 0 ? 'disabled' : ''}>${icon('dice', 18)} Перебросить (${p.rerolls}) <kbd>R</kbd></button>
+          <button class="btn btn-ghost btn-sm" data-act="reroll">${this.rerollLabel(g)}</button>
         </div>
       </div>`;
     this.renderCards(choices);
@@ -563,10 +569,13 @@ export class UI {
     this.levelChoices = nc;
     this.renderCards(nc);
     this.cardsReadyAt = performance.now() + 150;
-    const btn = this.screens.levelup.querySelector('[data-act=reroll]');
-    const p = this.game.player;
-    btn.innerHTML = `${icon('dice', 18)} Перебросить (${p.rerolls}) <kbd>R</kbd>`;
-    btn.disabled = p.rerolls <= 0;
+    this.screens.levelup.querySelector('[data-act=reroll]').outerHTML = `<button class="btn btn-ghost btn-sm" data-act="reroll">${this.rerollLabel(this.game)}</button>`;
+    this.screens.levelup.querySelector('[data-act=reroll]').onclick = () => this.doReroll();
+  }
+
+  rerollLabel(g) {
+    const price = g.choiceRerollPrice();
+    return `${icon('dice', 18)} Перебросить · ${icon('coin', 15)} <b class="${g.gold < price ? 'poor' : ''}">${price}</b> <span class="muted">(${g.gold})</span> <kbd>R</kbd>`;
   }
 
   hideLevelUp() {
@@ -656,6 +665,7 @@ export class UI {
         <div class="sheet-head"><b>${c.name}</b><span>${c.title} · уровень ${p.level}</span></div>
         ${this.gearRow(p, 'weapon')}
         ${this.gearRow(p, 'armor')}
+        ${p.forge.ability.lvl ? this.gearRow(p, 'ability') : ''}
         <div class="info-row">${icon('star', 20)}<div><b>${c.passive.name}</b><span>${c.passive.desc}</span></div></div>
         <div class="info-row main">${icon(c.ability.icon, 20)}<div><b>${c.ability.name} · ${cd.toFixed(1)} сек.</b><span>${c.ability.desc} Клавиша Space.</span></div></div>
         <div class="stat-grid">${st.map(([k, v]) => `<div><span>${k}</span><b>${v}</b></div>`).join('')}</div>
@@ -672,11 +682,29 @@ export class UI {
     const f = p.forge[slot];
     const r = rarityOf(f.lvl);
     const fams = famsOf(slot);
-    const base = slot === 'weapon' ? p.weapon.desc + ' Атакует сама, по ближайшему видимому врагу.' : `Базовая броня ${Math.round(p.char.armor.base * 100)}%. Улучшается в кузне у костра.`;
+    const base = slot === 'weapon' ? p.weapon.desc + ' Атакует сама, по ближайшему видимому врагу.' : slot === 'ability' ? p.char.ability.desc : `Базовая броня ${Math.round(p.char.armor.base * 100)}%. Улучшается в кузне у костра.`;
     const steps = Object.entries(f.fams).map(([id, n]) => `<i style="--f:${fams[id].color}">${fams[id].name} ${n}${n >= LEGEND_AT ? ' ★' : ''}</i>`).join('');
     const legends = Object.entries(f.fams).filter(([, n]) => n >= LEGEND_AT).map(([id]) => `<em class="legend">★ ${fams[id].legend.name}: ${fams[id].legend.desc}</em>`).join('');
-    const ic = slot === 'weapon' ? p.weapon.icon : p.char.armor.icon;
+    const ic = slot === 'weapon' ? p.weapon.icon : slot === 'ability' ? p.char.ability.icon : p.char.armor.icon;
     return `<div class="info-row gear-row" style="--r:${r.color}">${icon(ic, 20)}<div><b>${forgeName(p, slot)} <em>${r.name}${f.lvl ? ` · ступень ${f.lvl}/${MAX_FORGE}` : ''}</em></b><span>${base}</span>${steps ? `<div class="fams">${steps}</div>` : ''}${legends}</div></div>`;
+  }
+
+  // Итоговый билд забега: снаряжение, таинства, пути и главные артефакты
+  buildSummary(p) {
+    const chip = (ic, color, title, sub) => `<div class="bchip" style="--r:${color}">${icon(ic, 16)}<div><b>${title}</b>${sub ? `<span>${sub}</span>` : ''}</div></div>`;
+    const gear = ['weapon', 'armor', 'ability'].filter((sl) => sl !== 'ability' || p.forge.ability.lvl).map((sl) => {
+      const f = p.forge[sl];
+      const fams = famsOf(sl);
+      const ic = sl === 'weapon' ? p.weapon.icon : sl === 'ability' ? p.char.ability.icon : p.char.armor.icon;
+      const legends = Object.entries(f.fams).filter(([, n]) => n >= LEGEND_AT).map(([id]) => '★ ' + fams[id].legend.name).join(', ');
+      return chip(ic, rarityOf(f.lvl).color, forgeName(p, sl), legends || rarityOf(f.lvl).name);
+    });
+    const myth = p.upgList.filter((c) => c.up.mythic).map((c) => chip(c.up.icon, '#ff5a8a', c.up.name, 'Таинство'));
+    const branches = p.char.branches.filter((b) => p.branch[b.name]).map((b) => chip(b.icon, p.char.color, 'Путь: ' + b.name, `даров: ${p.branch[b.name]}${p.branch[b.name] >= 2 ? ' · вершина' : ''}`));
+    const items = Object.entries(p.itemCount).map(([id, n]) => ({ it: itemById(id), n })).sort((a, b) => b.it.tier - a.it.tier).slice(0, 6)
+      .map(({ it, n }) => chip(it.icon, TIERS[it.tier].color, it.name + (n > 1 ? ` ×${n}` : ''), ''));
+    const sect = (name, arr) => (arr.length ? `<div class="bsect"><em>${name}</em><div class="bchips">${arr.join('')}</div></div>` : '');
+    return `<div class="build-sum">${sect('Снаряжение', gear)}${sect('Таинства', myth)}${sect('Пути', branches)}${sect('Артефакты', items)}</div>`;
   }
 
   giftList(p) {
@@ -746,7 +774,7 @@ export class UI {
         <div class="counter">
           ${this.statStrip(g)}
           <div class="wares">
-            ${['weapon', 'armor'].map((slot) => this.stallHtml(g, slot)).join('')}
+            ${['weapon', 'armor', 'ability'].map((slot) => this.stallHtml(g, slot)).join('')}
             <div class="stall stall-relic">
               <div class="stall-head">${icon('star', 20)}<div><b>Диковины</b><em>артефакты из склепа</em></div></div>
               <div class="stall-items">${g.shopOffers.map((o, i) => (o.kind === 'item' || o.kind === 'heal' ? this.wareHtml(g, o, i) : '')).join('')}</div>
@@ -754,7 +782,7 @@ export class UI {
           </div>
           <div class="lobby-actions">
             <button class="btn btn-ghost btn-sm" data-act="gear">${icon('shield', 18)} Снаряжение</button>
-            <button class="btn btn-ghost btn-sm" data-act="reroll" ${g.gold < rp ? 'disabled' : ''}>${icon('dice', 18)} Другой товар · ${rp === 0 ? 'бесплатно' : rp}</button>
+            <button class="btn btn-ghost btn-sm" data-act="reroll" ${g.gold < rp ? 'disabled' : ''}>${icon('dice', 18)} Другой товар · ${rp === 0 ? 'бесплатно' : `${icon('coin', 15)} ${rp}`}</button>
             <button class="btn btn-primary" data-act="next">${icon('sword', 20)} В путь — волна ${next}</button>
           </div>
         </div>
@@ -823,10 +851,10 @@ export class UI {
     const p = g.player;
     const f = p.forge[slot];
     const r = rarityOf(f.lvl);
-    const ic = slot === 'weapon' ? p.weapon.icon : p.char.armor.icon;
+    const ic = slot === 'weapon' ? p.weapon.icon : slot === 'ability' ? p.char.ability.icon : p.char.armor.icon;
     const cards = g.shopOffers.map((o, i) => (o.kind === 'forge' && o.slot === slot ? this.wareHtml(g, o, i) : '')).join('');
     return `<div class="stall" style="--r:${r.color}">
-      <div class="stall-head">${icon(ic, 20)}<div><b>${forgeName(p, slot)}</b><em>${slot === 'weapon' ? 'Оружие' : 'Броня'} · ${r.name}${f.lvl ? ` · ${f.lvl}/${MAX_FORGE}` : ''}</em></div></div>
+      <div class="stall-head">${icon(ic, 20)}<div><b>${forgeName(p, slot)}</b><em>${slot === 'weapon' ? 'Оружие' : slot === 'ability' ? 'Способность' : 'Броня'} · ${r.name}${f.lvl ? ` · ${f.lvl}/${MAX_FORGE}` : ''}</em></div></div>
       <div class="stall-items">${cards || '<div class="muted stall-max">Предел мастерства достигнут</div>'}</div>
     </div>`;
   }
@@ -843,7 +871,7 @@ export class UI {
       const next = rarityOf(p.forge[o.slot].lvl + 1);
       color = fam.color;
       ic = fam.icon;
-      kicker = `${o.slot === 'weapon' ? 'Закалка' : 'Укрепление'} · ступень ${n + 1}${n + 1 === LEGEND_AT ? ' · легенда' : ''}`;
+      kicker = `${o.slot === 'weapon' ? 'Закалка' : o.slot === 'ability' ? 'Обряд' : 'Укрепление'} · ступень ${n + 1}${n + 1 === LEGEND_AT ? ' · легенда' : ''}`;
       const cur = rarityOf(p.forge[o.slot].lvl);
       name = next !== cur ? `${fam.name} <span class="to" style="color:${next.color}">→ ${next.name}</span>` : fam.name;
       desc = stepDesc(p, o.slot, o.fam);
@@ -898,20 +926,24 @@ export class UI {
           ${isRecord ? `<em>${icon('crown', 16)} Новая слава</em>` : ''}
         </div>
         <div class="go-grid">
-          ${cell('skull', 'Волна', `${g.wave} / 20`)}
+          ${cell('skull', 'Волна', g.endless ? `${g.wave} · ∞` : `${g.wave} / 20`)}
           ${cell('star', 'Уровень', p.level)}
           ${cell('sword', 'Убийств', formatNum(st.kills))}
           ${cell('crown', 'Боссов', st.bosses)}
           ${cell('coin', 'Золота', formatNum(st.goldTotal))}
           ${cell('clock', 'Время', formatTime(g.time))}
         </div>
+        ${this.buildSummary(p)}
         <div class="pause-btns">
-          <button class="btn btn-primary" data-act="again">${icon('sword', 18)} Снова в бой</button>
+          ${won ? `<button class="btn btn-primary" data-act="endless">${icon('skull', 18)} Бесконечный поход</button>` : ''}
+          <button class="btn ${won ? '' : 'btn-primary'}" data-act="again">${icon('sword', 18)} Снова в бой</button>
           <button class="btn" data-act="hero">Сменить героя</button>
           <button class="btn btn-ghost" data-act="menu">В меню</button>
         </div>
       </div>`;
     el.querySelector('[data-act=again]').onclick = () => this.click(() => this.startRun());
+    const en = el.querySelector('[data-act=endless]');
+    if (en) en.onclick = () => this.click(() => g.continueEndless());
     el.querySelector('[data-act=hero]').onclick = () => this.click(() => this.toMenu('select'));
     el.querySelector('[data-act=menu]').onclick = () => this.click(() => this.toMenu('menu'));
     this.show('over');

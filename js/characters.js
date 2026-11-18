@@ -109,6 +109,48 @@ export const CHARACTERS = [
       { name: 'Души', icon: 'ghost', desc: 'Духи-хранители, лечение, пронзающие души' },
     ],
   },
+  {
+    id: 'morten', name: 'Мортен', title: 'Неупокоенный', color: '#8fd8b8', color2: '#e0fff2', male: true, icon: 'skull',
+    hp: 120, speed: 225, stats: { hp: 3, speed: 2, damage: 4, difficulty: 3 }, role: 'Нежить · Посмертие',
+    lore: 'Рыцарь, которого не приняла даже смерть. Когда его кости рассыпаются, он встаёт снова — если успеет забрать с собой достаточно врагов.',
+    weapons: [
+      { id: 'cleaver', style: 'Ближний бой · казнь', bars: [4, 2, 2, 4], name: 'Палаческий топор', icon: 'axe', borrow: [['Barbarian', '2H_Axe']], tags: ['melee'], anim: '1H_Melee_Attack_Chop', damage: 28, rate: 1.2, speed: 500,
+        desc: 'Тяжёлые размашистые удары. Каждое убийство топором лечит на 0.6% здоровья.' },
+      { id: 'hook', style: 'Ближний бой · притяжение', bars: [3, 3, 4, 2], name: 'Цепь с крюком', icon: 'chain', borrow: [['Rogue', 'Knife']], tags: ['melee'], anim: 'Dualwield_Melee_Attack_Stab', damage: 16, rate: 1.6, speed: 500,
+        desc: 'Длинный узкий бросок крюка. Задетых врагов подтягивает вплотную к Мортену.' },
+      { id: 'tomb', style: 'Щит · ударная волна', bars: [2, 3, 1, 3], name: 'Надгробный щит', icon: 'shield', borrow: [['Knight', '1H_Sword'], ['Knight', 'Rectangle_Shield']], shield: true, tags: ['melee'], anim: 'Unarmed_Melee_Attack_Punch_A', damage: 18, rate: 1.5, speed: 500,
+        desc: 'Щит ловит снаряды спереди. Каждый 4-й удар — могильная волна вокруг.' },
+    ],
+    armor: { name: 'Истлевший доспех', icon: 'armor', base: 0.08 },
+    passive: { name: 'Посмертие', desc: 'При смерти Мортен 5 сек. неуязвим и бьёт на 50% сильнее, каждое убийство копит ему 4% здоровья. Накопил 20% — встаёт снова. Раз за волну.' },
+    ability: { name: 'Стон могилы', icon: 'skull', cd: 11, desc: 'Враги вокруг в ужасе бегут 2.5 сек., получают урон и становятся уязвимы.' },
+    branches: [
+      { name: 'Палач', icon: 'axe', desc: 'Лечение от убийств, казнь раненых, нарастающая ярость' },
+      { name: 'Цепи', icon: 'chain', desc: 'Притяжение, оковы, цепи по толпе' },
+      { name: 'Посмертие', icon: 'skull', desc: 'Дольше в посмертии, легче восстать, взрыв при воскрешении' },
+    ],
+  },
+  {
+    id: 'irven', name: 'Ирвен', title: 'Ткач проклятий', color: '#c58aff', color2: '#f2e2ff', male: true, icon: 'eye',
+    hp: 100, speed: 235, stats: { hp: 2, speed: 3, damage: 3, difficulty: 4 }, role: 'Проклятия · Тотемы',
+    lore: 'Колдун-скелет, сплетающий порчу из шёпота мёртвых. Его проклятие не умирает вместе с жертвой — оно ищет следующую.',
+    weapons: [
+      { id: 'totems', style: 'Призыв · тотемы', bars: [3, 2, 4, 3], name: 'Посох тотемов', icon: 'staff', borrow: [['Mage', '2H_Staff']], tags: ['spell', 'summon'], anim: 'Spellcast_Summon', damage: 12, rate: 0.7, speed: 600,
+        desc: 'Ставит у цели костяной тотем (до 3), который 6 сек. обстреливает врагов.' },
+      { id: 'hex', style: 'Магия · порча', bars: [2, 4, 4, 1], name: 'Жезл порчи', icon: 'staff', borrow: [['Mage', '1H_Wand']], tags: ['proj', 'spell'], anim: 'Spellcast_Shoot', damage: 9, rate: 2.4, speed: 520,
+        desc: 'Самонаводящиеся сгустки порчи: каждое попадание вешает 2 проклятия.' },
+      { id: 'swarm', style: 'Призыв · рой', bars: [2, 3, 3, 3], name: 'Гримуар роя', icon: 'book', borrow: [['Mage', 'Spellbook_open']], tags: ['spell', 'summon'], anim: 'Spellcasting', damage: 10, rate: 1.0, speed: 380,
+        desc: 'Выпускает 2 призрачных нетопыря: они кружат и сами набрасываются на врагов.' },
+    ],
+    armor: { name: 'Саван колдуна', icon: 'armor', base: 0 },
+    passive: { name: 'Порча', desc: 'Каждое попадание накладывает проклятие (до 5): враг гниёт, теряя здоровье. Когда проклятый умирает, порча перескакивает на соседа.' },
+    ability: { name: 'Великий обряд', icon: 'eye', cd: 12, desc: 'Все проклятые враги взрываются — тем сильнее, чем больше на них порчи. Тотемы 4 сек. бьют вдвое чаще.' },
+    branches: [
+      { name: 'Тотемы', icon: 'tower', desc: 'Больше тотемов, дольше живут, взрываются' },
+      { name: 'Порча', icon: 'drop', desc: 'Глубже проклятие, шире заражение, обречённые враги' },
+      { name: 'Рой', icon: 'bird', desc: 'Больше нетопырей, вампиризм, заразный рой' },
+    ],
+  },
 ];
 
 export const charById = (id) => CHARACTERS.find((c) => c.id === id) || CHARACTERS[0];

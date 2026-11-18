@@ -102,10 +102,35 @@ export const ARMOR_FAMS = {
   },
 };
 
-export const famsOf = (slot) => (slot === 'weapon' ? WEAPON_FAMS : ARMOR_FAMS);
+// Направления для активной способности
+export const ABILITY_FAMS = {
+  haste: {
+    name: 'Спешка', gen: 'Спешки', icon: 'clock', color: '#9fd8ff',
+    step: '−8% перезарядки способности',
+    apply: (p) => (s(p).cdMult *= 0.92),
+    legend: { name: 'Двойной заряд', desc: 'Способность копит второй заряд' },
+    legendApply: (p) => (p.flags.twoCharges = true),
+  },
+  power: {
+    name: 'Мощь', gen: 'Мощи', icon: 'burst', color: '#ffb060',
+    step: '+20% силы способности (урон, число призывов)',
+    apply: (p) => (p.abil.power += 0.2),
+    legend: { name: 'Отголосок', desc: 'Через 2 сек. способность срабатывает ещё раз с половиной силы' },
+    legendApply: (p) => (p.flags.abilityEcho = true),
+  },
+  dur: {
+    name: 'Стойкость', gen: 'Стойкости', icon: 'hourglass', color: '#c8a0ff',
+    step: '+15% длительности способности',
+    apply: (p) => (p.abil.dur += 0.15),
+    legend: { name: 'Сила воли', desc: 'Способность лечит на 15% здоровья и даёт 1.5 сек. неуязвимости' },
+    legendApply: (p) => (p.flags.willpower = true),
+  },
+};
+
+export const famsOf = (slot) => (slot === 'weapon' ? WEAPON_FAMS : slot === 'ability' ? ABILITY_FAMS : ARMOR_FAMS);
 
 export function newForge() {
-  return { weapon: { lvl: 0, fams: {} }, armor: { lvl: 0, fams: {} } };
+  return { weapon: { lvl: 0, fams: {} }, armor: { lvl: 0, fams: {} }, ability: { lvl: 0, fams: {} } };
 }
 
 // Ведущее направление — по нему называется предмет
@@ -117,7 +142,7 @@ export function mainFam(slot, f) {
 
 export function forgeName(p, slot) {
   const f = p.forge[slot];
-  const base = slot === 'weapon' ? p.weapon.name : p.char.armor.name;
+  const base = slot === 'weapon' ? p.weapon.name : slot === 'ability' ? p.char.ability.name : p.char.armor.name;
   const m = mainFam(slot, f);
   return m ? `${base} ${m.gen} +${f.lvl}` : base;
 }
@@ -150,6 +175,7 @@ export function forgeStep(p, slot, famId) {
   f.lvl++;
   f.fams[famId] = (f.fams[famId] || 0) + 1;
   if (slot === 'weapon') p.weaponMult = 1 + 0.07 * f.lvl;
+  else if (slot === 'ability') s(p).cdMult *= 0.96;
   else {
     s(p).maxHp += 8;
     p.hp += 8;
@@ -166,7 +192,7 @@ export function forgeStep(p, slot, famId) {
 export function stepDesc(p, slot, famId) {
   const fam = famsOf(slot)[famId];
   const n = p.forge[slot].fams[famId] || 0;
-  const base = slot === 'weapon' ? '+7% урона оружия' : '+8 к здоровью';
+  const base = slot === 'weapon' ? '+7% урона оружия' : slot === 'ability' ? '−4% перезарядки' : '+8 к здоровью';
   let txt = `${base}; ${fam.step}.`;
   if (n + 1 === LEGEND_AT) txt += ` Откроет: «${fam.legend.name}» — ${fam.legend.desc.toLowerCase()}.`;
   return txt;
