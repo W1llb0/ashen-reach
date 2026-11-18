@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <title>Пепельный Предел — 3D roguelike bullet hell</title>
+  <meta name="description" content="Фэнтези 3D roguelike bullet hell: 5 героев, 20 волн нежити, лавка артефактов, мини-боссы и три Владыки Предела." />
+  <meta name="theme-color" content="#070508" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230c0805'/%3E%3Cpath d='M32 8 52 32 32 56 12 32z' fill='none' stroke='%23e8c060' stroke-width='5'/%3E%3Ccircle cx='32' cy='32' r='7' fill='%23ff8a3d'/%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display+SC:wght@700;900&family=Bona+Nova+SC:wght@400;700&family=EB+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/style.css" />
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <canvas id="game"></canvas>
+  <canvas id="overlay"></canvas>
+  <div id="vignette"></div>
+
+  <!-- Загрузка -->
+  <div id="loading" class="loading">
+    <div class="loading-inner">
+      <div class="loading-title">Пепельный Предел</div>
+      <div class="loading-bar"><i id="loadFill"></i></div>
+      <div class="loading-text" id="loadText">Пробуждаем мёртвых…</div>
+    </div>
+  </div>
+
+  <!-- HUD -->
+  <div id="hud" class="hidden">
+    <div class="xp"><div id="xpFill"></div></div>
+    <div class="hud-top">
+      <div class="hud-left">
+        <div id="lvlBadge" class="lvl-badge"><small>LV</small><span id="lvl">1</span></div>
+        <div class="hp">
+          <div class="hp-bar"><div id="hpGhost"></div><div id="hpFill"></div></div>
+          <div class="hp-row"><span id="hpText">100 / 100</span><span id="shieldPip" class="shield-pip none"></span></div>
+          <div class="res" id="res"><div class="res-bar"><i id="resFill"></i></div><span id="resLabel"></span></div>
+        </div>
+      </div>
+      <div class="hud-center"><div class="wave-label" id="waveLabel">Волна 1 / 20</div><div id="timer">0</div></div>
+      <div class="hud-right">
+        <div class="kills gold-chip"><span id="goldIcon"></span><span id="gold">0</span></div>
+        <div class="kills"><span id="killsIcon"></span><span id="kills">0</span></div>
+        <button id="muteBtn" class="hud-btn" aria-label="Звук"></button>
+        <button id="pauseBtn" class="hud-btn" aria-label="Пауза"></button>
+      </div>
+    </div>
+    <div id="bossbar" class="hidden">
+      <div id="bossName"></div>
+      <div class="boss-track"><div id="bossFill"></div></div>
+    </div>
+    <div id="bossWarn"></div>
+    <div id="toasts"></div>
+    <div id="upgrades"></div>
+    <div id="ability">
+      <button id="abilityBtn" aria-label="Способность"><span id="abilityIcon"></span><span id="abilityCd"></span></button>
+      <div class="ab-label"><span id="abilityName"></span><kbd>Space</kbd></div>
+    </div>
+  </div>
+
+  <!-- Экраны -->
+  <div id="screen-menu" class="screen screen-menu"></div>
+  <div id="screen-select" class="screen screen-select"></div>
+  <div id="screen-help" class="screen dim"></div>
+  <div id="screen-levelup" class="screen dim"></div>
+  <div id="screen-shop" class="screen screen-lobby"></div>
+  <div id="screen-pause" class="screen dim"></div>
+  <div id="screen-over" class="screen dim"></div>
+
+  <noscript><div class="noscript">Для игры нужен JavaScript.</div></noscript>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
